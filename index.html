@@ -227,6 +227,18 @@
             </div>
         </div>
 
+        <!-- Saha Teması -->
+        <div class="mt-4 bg-slate-900/90 border border-slate-800 rounded-2xl p-3">
+            <div class="text-[11px] font-semibold text-slate-400 mb-2">🎨 Saha Teması</div>
+            <div class="grid grid-cols-3 gap-2">
+                <button type="button" data-theme="green" class="theme-opt py-2.5 rounded-xl bg-green-700/30 border-2 border-emerald-400 text-white text-[11px] font-bold cursor-pointer">🟩 Yeşil Saha</button>
+                <button type="button" data-theme="black" class="theme-opt py-2.5 rounded-xl bg-black border-2 border-slate-700 text-slate-400 text-[11px] font-bold cursor-pointer">⬛ Siyah Tema</button>
+                <button type="button" data-theme="ice" class="theme-opt py-2.5 rounded-xl bg-sky-900/50 border-2 border-slate-700 text-slate-400 text-[11px] font-bold cursor-pointer">🟦 Buz Mavisi</button>
+                <button type="button" data-theme="neon" class="theme-opt py-2.5 rounded-xl bg-purple-950 border-2 border-slate-700 text-slate-400 text-[11px] font-bold cursor-pointer">🟪 Neon Mor</button>
+                <button type="button" data-theme="sand" class="theme-opt py-2.5 rounded-xl bg-amber-800/40 border-2 border-slate-700 text-slate-400 text-[11px] font-bold cursor-pointer">🟨 Çöl Kumu</button>
+            </div>
+        </div>
+
         <!-- Maçı Başlat Butonu -->
         <div class="pt-5">
             <button id="startMatchBtn" type="button" class="w-full py-4 rounded-2xl bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-400 hover:to-teal-400 active:scale-[0.98] text-slate-950 font-black text-base tracking-wide shadow-lg shadow-emerald-500/25 transition-all flex items-center justify-center gap-2 cursor-pointer">
@@ -348,12 +360,15 @@
                 <span id="liveTicker" class="text-[11px] font-semibold text-slate-300 truncate">⚽ Hakem düdüğünü çaldı, maç başladı!</span>
             </div>
 
-            <div class="grid grid-cols-3 gap-2">
+            <div class="grid grid-cols-4 gap-2">
                 <button id="pauseBtn" type="button" class="py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 active:scale-95 text-xs font-bold text-white border border-slate-700 transition cursor-pointer">
                     ⏸️ Duraklat
                 </button>
                 <button id="restartBtn" type="button" class="py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 active:scale-95 text-xs font-bold text-amber-300 border border-slate-700 transition cursor-pointer">
                     🔄 Yeniden
+                </button>
+                <button id="themeBtn" type="button" class="py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 active:scale-95 text-xs font-bold text-emerald-300 border border-slate-700 transition cursor-pointer">
+                    🎨 Tema
                 </button>
                 <button id="setupBtn" type="button" class="py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 active:scale-95 text-xs font-bold text-sky-300 border border-slate-700 transition cursor-pointer">
                     ⚙️ Ayarlar
@@ -2050,6 +2065,34 @@
         /**
          * ÇİZİM MOTORU (TEMİZ CANVAS: Hiçbir statik yazı canvas üzerinde yer almaz, sadece floating texts vardır)
          */
+        const PITCH_THEMES = {
+            green: { name: 'Yeşil Saha', base: '#16a34a', stripe: '#15803d', line: 'rgba(255, 255, 255, 0.9)' },
+            black: { name: 'Siyah Tema', base: '#05070a', stripe: '#0c1016', line: 'rgba(226, 232, 240, 0.85)' },
+            ice:   { name: 'Buz Mavisi', base: '#0e3a5c', stripe: '#0b3050', line: 'rgba(186, 230, 253, 0.92)' },
+            neon:  { name: 'Neon Mor',   base: '#1b0a33', stripe: '#260e45', line: 'rgba(240, 130, 250, 0.92)' },
+            sand:  { name: 'Çöl Kumu',   base: '#c9a45c', stripe: '#b8934b', line: 'rgba(255, 251, 235, 0.95)' }
+        };
+        let pitchTheme = 'green';
+        try {
+            const saved = localStorage.getItem('haxballTheme');
+            if (saved && PITCH_THEMES[saved]) pitchTheme = saved;
+        } catch (e) {}
+
+        function setTheme(key) {
+            if (!PITCH_THEMES[key]) return;
+            pitchTheme = key;
+            try { localStorage.setItem('haxballTheme', key); } catch (e) {}
+            document.querySelectorAll('.theme-opt').forEach(b => {
+                const on = b.getAttribute('data-theme') === key;
+                b.classList.toggle('border-emerald-400', on);
+                b.classList.toggle('text-white', on);
+                b.classList.toggle('border-slate-700', !on);
+                b.classList.toggle('text-slate-400', !on);
+            });
+            const tb = document.getElementById('themeBtn');
+            if (tb) tb.textContent = '🎨 Tema';
+        }
+
         function drawPitch() {
             ctx.save();
             if (matchState.shakeTimer > 0) {
@@ -2058,17 +2101,18 @@
             }
 
             // Canlı Parlak Yeşil Saha
-            ctx.fillStyle = '#16a34a';
+            const TH = PITCH_THEMES[pitchTheme];
+            ctx.fillStyle = TH.base;
             ctx.fillRect(0, 0, PITCH_W, PITCH_H);
 
-            ctx.fillStyle = '#15803d';
+            ctx.fillStyle = TH.stripe;
             const stripeH = 40;
             for (let y = WALL_PAD; y < PITCH_H - WALL_PAD; y += stripeH * 2) {
                 ctx.fillRect(WALL_PAD, y, PITCH_W - WALL_PAD * 2, stripeH);
             }
 
             ctx.lineWidth = 2.5;
-            ctx.strokeStyle = 'rgba(255, 255, 255, 0.9)';
+            ctx.strokeStyle = TH.line;
             ctx.beginPath();
             ctx.moveTo(WALL_PAD + CORNER_R, WALL_PAD);
             ctx.arcTo(PITCH_W - WALL_PAD, WALL_PAD, PITCH_W - WALL_PAD, WALL_PAD + CORNER_R, CORNER_R);
@@ -2087,7 +2131,7 @@
             ctx.arc(PITCH_W / 2, PITCH_H / 2, 52, 0, Math.PI * 2);
             ctx.stroke();
 
-            ctx.fillStyle = 'rgba(255, 255, 255, 0.9)';
+            ctx.fillStyle = TH.line;
             ctx.beginPath();
             ctx.arc(PITCH_W / 2, PITCH_H / 2, 4.5, 0, Math.PI * 2);
             ctx.fill();
@@ -2558,6 +2602,16 @@
             if (animFrameId) cancelAnimationFrame(animFrameId);
             animFrameId = requestAnimationFrame(gameLoop);
         });
+
+        document.querySelectorAll('.theme-opt').forEach(b => {
+            b.addEventListener('click', () => setTheme(b.getAttribute('data-theme')));
+        });
+        document.getElementById('themeBtn').addEventListener('click', () => {
+            const keys = Object.keys(PITCH_THEMES);
+            setTheme(keys[(keys.indexOf(pitchTheme) + 1) % keys.length]);
+            setTicker('🎨 Saha teması: ' + PITCH_THEMES[pitchTheme].name);
+        });
+        setTheme(pitchTheme);
 
         createPlayers();
         resizeCanvas();
