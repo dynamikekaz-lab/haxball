@@ -236,6 +236,27 @@
                 <button type="button" data-theme="ice" class="theme-opt py-2.5 rounded-xl bg-sky-900/50 border-2 border-slate-700 text-slate-400 text-[11px] font-bold cursor-pointer">🟦 Buz Mavisi</button>
                 <button type="button" data-theme="neon" class="theme-opt py-2.5 rounded-xl bg-purple-950 border-2 border-slate-700 text-slate-400 text-[11px] font-bold cursor-pointer">🟪 Neon Mor</button>
                 <button type="button" data-theme="sand" class="theme-opt py-2.5 rounded-xl bg-amber-800/40 border-2 border-slate-700 text-slate-400 text-[11px] font-bold cursor-pointer">🟨 Çöl Kumu</button>
+                <button type="button" data-theme="snow" class="theme-opt py-2.5 rounded-xl bg-slate-200/20 border-2 border-slate-700 text-slate-400 text-[11px] font-bold cursor-pointer">❄️ Kar</button>
+            </div>
+        </div>
+
+        <!-- Top Rengi -->
+        <div class="mt-3 bg-slate-900/90 border border-slate-800 rounded-2xl p-3">
+            <div class="flex items-center justify-between mb-2">
+                <div class="text-[11px] font-semibold text-slate-400">⚽ Top Rengi</div>
+                <div class="flex items-center gap-2">
+                    <div id="ballPreview" class="w-7 h-7 rounded-full border-2 flex items-center justify-center"><div id="ballPreviewDot" class="w-2 h-2 rounded-full"></div></div>
+                    <input type="color" id="ballColorInput" value="#ffffff" class="w-7 h-7 rounded-lg cursor-pointer bg-transparent border-0 p-0">
+                </div>
+            </div>
+            <div class="flex justify-between" id="ballPresets">
+                    <button type="button" data-color="#ffffff" class="ball-preset w-8 h-8 rounded-full border-2 border-slate-700 cursor-pointer" style="background:#ffffff"></button>
+                    <button type="button" data-color="#f97316" class="ball-preset w-8 h-8 rounded-full border-2 border-slate-700 cursor-pointer" style="background:#f97316"></button>
+                    <button type="button" data-color="#facc15" class="ball-preset w-8 h-8 rounded-full border-2 border-slate-700 cursor-pointer" style="background:#facc15"></button>
+                    <button type="button" data-color="#84cc16" class="ball-preset w-8 h-8 rounded-full border-2 border-slate-700 cursor-pointer" style="background:#84cc16"></button>
+                    <button type="button" data-color="#22d3ee" class="ball-preset w-8 h-8 rounded-full border-2 border-slate-700 cursor-pointer" style="background:#22d3ee"></button>
+                    <button type="button" data-color="#ec4899" class="ball-preset w-8 h-8 rounded-full border-2 border-slate-700 cursor-pointer" style="background:#ec4899"></button>
+                    <button type="button" data-color="#0f172a" class="ball-preset w-8 h-8 rounded-full border-2 border-slate-700 cursor-pointer" style="background:#0f172a"></button>
             </div>
         </div>
 
@@ -289,7 +310,14 @@
             <canvas id="pitchCanvas" class="rounded-2xl shadow-2xl border border-slate-800"></canvas>
 
             <!-- Sağ üst: oyuncu değişikliği bildirimleri -->
+            <div id="replayBadge" class="hidden absolute top-3 left-3 z-20 flex items-center gap-2">
+                <div class="px-3 py-1 rounded-full bg-red-600/90 text-white text-[11px] font-black tracking-wider animate-pulse">🎬 TEKRAR</div>
+                <button id="replaySkipBtn" type="button" class="px-3 py-1 rounded-full bg-slate-900/90 border border-slate-600 text-[11px] font-bold text-slate-200 cursor-pointer">⏭ Geç</button>
+            </div>
             <div id="halfToast" class="pointer-events-none absolute top-3 left-1/2 z-20 -translate-x-1/2 rounded-full bg-slate-900/90 border border-sky-400/60 px-3 py-1 text-[11px] font-bold text-sky-300 shadow-lg transition-opacity duration-500" style="opacity:0"></div>
+            <div id="kickoffCount" class="hidden pointer-events-none absolute inset-0 flex items-center justify-center z-20">
+                <div id="kickoffCountNum" class="text-7xl font-black text-white" style="text-shadow:0 0 18px rgba(16,185,129,.9),0 3px 0 rgba(2,6,23,.8)">3</div>
+            </div>
             <div id="subToasts" class="pointer-events-none absolute top-3 right-3 z-20 flex flex-col items-end gap-1.5"></div>
 
             <!-- Saha İçi Anlık Bildirim Bandı -->
@@ -1107,6 +1135,7 @@
             matchState.stuckTimer = 0;
             matchState.passIndicator = null;
             matchState.floatingTexts = [];
+            matchState.frames = [];
 
             players.forEach(p => {
                 p.vx = 0;
@@ -1158,6 +1187,62 @@
             const c = Math.cos(a), s = Math.sin(a);
             return [x * c - y * s, x * s + y * c];
         }
+
+        /**
+         * GERÇEK FALSO: top hedefin yanından geniş açıyla çıkar, kavis çizip hedefe girer.
+         * Sönümlü hıza göre dönüş hızı (omega) ve süre (T) sayısal olarak çözülür.
+         */
+        const FALSO_THETA = { rocket: 1.45, mega: 1.3, curve: 1.05, soft: 1.25, pass: 0.6 };
+        const FALSO_DECAY = 0.9068;
+        function falsoSim(v0, theta, T, omega) {
+            const N = 40, h = T / N;
+            let lat = 0, al = 0;
+            for (let i = 0; i < N; i++) {
+                const t = (i + 0.5) * h, v = v0 * Math.exp(-FALSO_DECAY * t), a = -theta + omega * t;
+                lat += v * Math.sin(a) * h;
+                al += v * Math.cos(a) * h;
+            }
+            return [lat, al];
+        }
+        function solveFalso(v0, theta, D) {
+            const alongAt = (T) => {
+                let lo = theta / T, hi = 2.6 * theta / T;
+                if (falsoSim(v0, theta, T, lo)[0] > 0 || falsoSim(v0, theta, T, hi)[0] < 0) return null;
+                for (let i = 0; i < 22; i++) {
+                    const m = (lo + hi) / 2;
+                    if (falsoSim(v0, theta, T, m)[0] < 0) lo = m; else hi = m;
+                }
+                const w = (lo + hi) / 2;
+                return { w, al: falsoSim(v0, theta, T, w)[1] };
+            };
+            let a = 0.25, b = 1.9, best = alongAt(b);
+            if (!best || best.al < D) return null;
+            for (let i = 0; i < 16; i++) {
+                const m = (a + b) / 2, r = alongAt(m);
+                if (r && r.al >= D) { b = m; best = r; } else a = m;
+            }
+            return { omega: best.w, T: b };
+        }
+        function planFalso(kind, D, speed, ux, uy) {
+            D += 8;
+            let theta = FALSO_THETA[kind], v0 = speed;
+            for (let k = 0; k < 6; k++) {
+                const r = solveFalso(v0, theta, D);
+                if (r) {
+                    const mx = ball.x + ux * D / 2;
+                    const roomL = mx - WALL_PAD, roomR = PITCH_W - WALL_PAD - mx;
+                    const sag = (D / 2) * Math.tan(theta / 2) + 20;
+                    let right = roomR > roomL;
+                    if (roomL > sag && roomR > sag) right = Math.random() < 0.5;
+                    let sign = (right === (uy > 0)) ? 1 : -1;
+                    if (Math.abs(uy) < 0.25) sign = Math.random() < 0.5 ? 1 : -1;
+                    return { sign, theta, omega: r.omega, T: r.T, speed: v0 };
+                }
+                theta *= 0.88;
+                v0 *= 1.1;
+            }
+            return null;
+        }
         function doKick(p, dirX, dirY, speed, opts = {}) {
             let len = Math.hypot(dirX, dirY) || 1;
             let ux = dirX / len, uy = dirY / len;
@@ -1182,21 +1267,15 @@
             }
             ball.curveTimer = 0;
             ball.curveRate = 0;
-            if (opts.rocket) {
-                const sign = Math.random() < 0.5 ? -1 : 1;
-                [ux, uy] = rotVec(ux, uy, -sign * 1.25);   // çok geniş açıyla fırlar
-                ball.curveRate = sign * 3.1;               // sonra aşırı sert kavis çizip kaleye döner
-                ball.curveTimer = 0.4;
-            } else if (opts.mega) {
-                const sign = Math.random() < 0.5 ? -1 : 1;
-                [ux, uy] = rotVec(ux, uy, -sign * 1.1);    // çok geniş açıyla çıkar
-                ball.curveRate = sign * 2.2;               // sonra çok sert kavis çizer
-                ball.curveTimer = 0.5;
-            } else if (opts.curve) {
-                const sign = Math.random() < 0.5 ? -1 : 1;
-                [ux, uy] = rotVec(ux, uy, -sign * 0.75);   // belirgin şekilde yana çıkar
-                ball.curveRate = sign * 1.07;               // sonra sert kavis çizip geri döner
-                ball.curveTimer = 0.7;
+            const fal = opts.rocket ? 'rocket' : opts.mega ? 'mega' : opts.soft ? 'soft' : opts.curve ? (opts.pass ? 'pass' : 'curve') : null;
+            if (fal) {
+                const plan = planFalso(fal, len, speed, ux, uy);
+                if (plan) {
+                    [ux, uy] = rotVec(ux, uy, -plan.sign * plan.theta);
+                    ball.curveRate = plan.sign * plan.omega;
+                    ball.curveTimer = plan.T;
+                    speed = plan.speed;
+                }
             }
             ball.vx = ux * speed + p.vx * 0.25;
             ball.vy = uy * speed + p.vy * 0.25;
@@ -1206,6 +1285,8 @@
         }
 
         function updateAI(dt) {
+            // Gol arası / tekrar / geri sayım sırasında kimse hareket etmez (maç başlamış gibi olmasın)
+            if (matchState.goalPauseTimer > 0 || matchState.replay) return;
             if (ball.kickLock > 0) ball.kickLock -= dt;
             if (matchState.passTarget) {
                 matchState.passTarget.life -= dt;
@@ -1641,7 +1722,7 @@
                             const pd = Math.hypot(ptx, pty) || 1;
                             const useCurve = !passPlan.through && pd > 180 && Math.random() < 0.12;
                             const spd = Math.max(250, Math.min(440, pd * 2.2 + 60));
-                            doKick(p, ptx, pty, spd, { curve: useCurve });
+                            doKick(p, ptx, pty, spd, { curve: useCurve, pass: true });
                             matchState.passTarget = { player: m, life: 1.5, through: passPlan.through, ax: aimX, ay: aimY };
                             p.kickCooldown = 0.4;
                             p.kickGlow = 0.3;
@@ -1698,6 +1779,13 @@
                                 p.kickGlow = 1.0;
                                 addFloatingText(p.x, p.y - 18, '🌪️ SÜPER FALSO!', '#e879f9');
                                 setTicker(`🌪️ ${teamConfig[p.team].name} takımından inanılmaz bir süper falsolu şut!`);
+                                matchState.stats[isHome ? 'homeShots' : 'awayShots']++;
+                            } else if (Math.random() < 0.06 && Math.hypot(stx, sty) > 90) {
+                                doKick(p, stx, sty, 330, { soft: true });
+                                sfx.playKick(1.1);
+                                p.kickGlow = 0.6;
+                                addFloatingText(p.x, p.y - 18, '🎯 ÇOK FALSOLU!', '#22d3ee');
+                                setTicker(`🎯 ${teamConfig[p.team].name} sert değil ama çok falsolu bir vuruş yaptı!`);
                                 matchState.stats[isHome ? 'homeShots' : 'awayShots']++;
                             } else if (Math.random() < 0.05) {
                                 doKick(p, stx, sty, 440);
@@ -1874,6 +1962,25 @@
             if (matchState.goalPauseTimer > 0) {
                 matchState.goalPauseTimer -= dt;
                 updateEffects(dt);
+                const cd = document.getElementById('kickoffCount');
+                const t = matchState.goalPauseTimer;
+                if (!matchState.pendingReplay && t > 0 && t <= 1.8) {
+                    const n = Math.ceil(t / 0.6);
+                    if (cd.dataset.n !== String(n)) {
+                        cd.dataset.n = String(n);
+                        document.getElementById('kickoffCountNum').textContent = n;
+                        sfx.playPost();
+                    }
+                    cd.classList.remove('hidden');
+                } else if (t > 0) {
+                    cd.classList.add('hidden');
+                }
+                if (t <= 0) {
+                    cd.classList.add('hidden');
+                    cd.dataset.n = '';
+                    sfx.playWhistle(false);
+                    setTicker('⚽ Düdük çaldı, oyun başladı!');
+                }
                 return;
             }
 
@@ -2031,6 +2138,13 @@
             }
 
             updateScoreboardUI();
+            // GOL TEKRARI: sıfırlamadan önce son saniyeleri sakla
+            {
+                const lastF = snapFrame();
+                lastF.t += 0.016;
+                matchState.frames.push(lastF);
+                matchState.pendingReplay = matchState.frames.slice();
+            }
             resetPositionsForKickoff(matchState.kickoffTeam);
         }
 
@@ -2070,13 +2184,40 @@
             black: { name: 'Siyah Tema', base: '#05070a', stripe: '#0c1016', line: 'rgba(226, 232, 240, 0.85)' },
             ice:   { name: 'Buz Mavisi', base: '#0e3a5c', stripe: '#0b3050', line: 'rgba(186, 230, 253, 0.92)' },
             neon:  { name: 'Neon Mor',   base: '#1b0a33', stripe: '#260e45', line: 'rgba(240, 130, 250, 0.92)' },
-            sand:  { name: 'Çöl Kumu',   base: '#c9a45c', stripe: '#b8934b', line: 'rgba(255, 251, 235, 0.95)' }
+            sand:  { name: 'Çöl Kumu',   base: '#c9a45c', stripe: '#b8934b', line: 'rgba(255, 251, 235, 0.95)' },
+            snow:  { name: 'Kar',        base: '#cfe0ee', stripe: '#bfd4e6', line: 'rgba(30, 64, 120, 0.75)', outline: '#1e3a5f', snow: true }
         };
         let pitchTheme = 'green';
         try {
             const saved = localStorage.getItem('haxballTheme');
             if (saved && PITCH_THEMES[saved]) pitchTheme = saved;
         } catch (e) {}
+
+        let ballColor = '#ffffff', ballRGB = '255, 255, 255', ballEdge = '#0f172a', ballDot = '#0f172a';
+        try { const sc = localStorage.getItem('haxballBall'); if (/^#[0-9a-f]{6}$/i.test(sc || '')) ballColor = sc; } catch (e) {}
+        function setBallColor(c) {
+            if (!/^#[0-9a-f]{6}$/i.test(c)) return;
+            ballColor = c;
+            const r = parseInt(c.substr(1, 2), 16), g = parseInt(c.substr(3, 2), 16), b = parseInt(c.substr(5, 2), 16);
+            ballRGB = r + ', ' + g + ', ' + b;
+            const lum = (0.299 * r + 0.587 * g + 0.114 * b) / 255;
+            ballEdge = lum > 0.25 ? '#0f172a' : '#e2e8f0';
+            ballDot = lum > 0.6 ? '#0f172a' : '#ffffff';
+            try { localStorage.setItem('haxballBall', c); } catch (e) {}
+            const inp = document.getElementById('ballColorInput');
+            if (inp) inp.value = c;
+            const pv = document.getElementById('ballPreview');
+            pv.style.background = c; pv.style.borderColor = ballEdge;
+            document.getElementById('ballPreviewDot').style.background = ballDot;
+            document.querySelectorAll('.ball-preset').forEach(btn => {
+                const on = btn.getAttribute('data-color').toLowerCase() === c.toLowerCase();
+                btn.classList.toggle('border-emerald-400', on);
+                btn.classList.toggle('border-slate-700', !on);
+                btn.classList.toggle('scale-110', on);
+            });
+        }
+        document.querySelectorAll('.ball-preset').forEach(btn => btn.addEventListener('click', () => setBallColor(btn.getAttribute('data-color'))));
+        document.getElementById('ballColorInput').addEventListener('input', (e) => setBallColor(e.target.value));
 
         function setTheme(key) {
             if (!PITCH_THEMES[key]) return;
@@ -2091,6 +2232,27 @@
             });
             const tb = document.getElementById('themeBtn');
             if (tb) tb.textContent = '🎨 Tema';
+        }
+
+        const snowFlakes = Array.from({ length: 80 }, () => ({ x: Math.random() * PITCH_W, y: Math.random() * PITCH_H, r: 0.9 + Math.random() * 2.1, s: 18 + Math.random() * 36, ph: Math.random() * 6.28 }));
+        let snowT = 0;
+        function drawSnow() {
+            const now = performance.now();
+            const dt = snowT ? Math.min(0.05, (now - snowT) / 1000) : 0;
+            snowT = now;
+            ctx.save();
+            ctx.fillStyle = '#ffffff';
+            ctx.shadowColor = 'rgba(59, 100, 180, 0.7)';
+            ctx.shadowBlur = 3;
+            snowFlakes.forEach(f => {
+                f.y += f.s * dt;
+                f.x += Math.sin(now / 900 + f.ph) * 14 * dt;
+                if (f.y > PITCH_H + 4) { f.y = -4; f.x = Math.random() * PITCH_W; }
+                ctx.beginPath();
+                ctx.arc(f.x, f.y, f.r, 0, 6.283);
+                ctx.fill();
+            });
+            ctx.restore();
         }
 
         function drawPitch() {
@@ -2196,7 +2358,7 @@
                 ctx.arc(0, 0, PLAYER_RADIUS, 0, Math.PI * 2);
                 ctx.fill();
                 ctx.lineWidth = 3;
-                ctx.strokeStyle = '#ffffff';
+                ctx.strokeStyle = TH.outline || '#ffffff';
                 ctx.stroke();
 
                 const cfg = teamConfig[p.team];
@@ -2250,7 +2412,7 @@
             });
 
             ball.trail.forEach(t => {
-                ctx.fillStyle = t.curve ? `rgba(192, 132, 252, ${t.life * 0.55})` : `rgba(245, 158, 11, ${t.life * 0.4})`;
+                ctx.fillStyle = t.curve ? `rgba(192, 132, 252, ${t.life * 0.55})` : `rgba(${ballRGB}, ${t.life * 0.45})`;
                 ctx.beginPath();
                 ctx.arc(t.x, t.y, BALL_RADIUS * t.life, 0, Math.PI * 2);
                 ctx.fill();
@@ -2278,15 +2440,15 @@
                 ctx.stroke();
                 ctx.restore();
             }
-            ctx.fillStyle = '#ffffff';
+            ctx.fillStyle = ballColor;
             ctx.beginPath();
             ctx.arc(0, 0, BALL_RADIUS, 0, Math.PI * 2);
             ctx.fill();
             ctx.lineWidth = 1.8;
-            ctx.strokeStyle = '#0f172a';
+            ctx.strokeStyle = ballEdge;
             ctx.stroke();
 
-            ctx.fillStyle = '#0f172a';
+            ctx.fillStyle = ballDot;
             ctx.beginPath();
             ctx.arc(0, 0, 3, 0, Math.PI * 2);
             ctx.fill();
@@ -2301,7 +2463,16 @@
             });
             ctx.globalAlpha = 1.0;
 
+            if (TH.snow) drawSnow();
             drawMiniScoreboard();
+
+            if (matchState.replay) {
+                ctx.save();
+                ctx.strokeStyle = 'rgba(239, 68, 68, 0.85)';
+                ctx.lineWidth = 6;
+                ctx.strokeRect(3, 3, PITCH_W - 6, PITCH_H - 6);
+                ctx.restore();
+            }
 
             ctx.restore();
         }
@@ -2366,6 +2537,100 @@
             ctx.restore();
         }
 
+        /**
+         * GOL TEKRARI (yavaş çekim)
+         */
+        const REPLAY_WINDOW = 2.4;    // tekrarlanan süre (sn)
+        const REPLAY_SPEED = 0.55;    // yavaş çekim hızı
+        matchState.frames = [];
+        matchState.recTime = 0;
+        matchState.replay = null;
+        matchState.pendingReplay = null;
+
+        function snapFrame() {
+            return {
+                t: matchState.recTime,
+                b: [ball.x, ball.y, ball.powerShotTimer > 0 ? 1 : 0, ball.curveTimer > 0 ? 1 : 0],
+                p: players.map(p => [p.x, p.y, p.sprintTimer > 0 ? 1 : 0, p.kickGlow > 0 ? 1 : 0])
+            };
+        }
+
+        function recordFrame(dt) {
+            matchState.recTime += dt;
+            matchState.frames.push(snapFrame());
+            while (matchState.frames.length > 2 && matchState.recTime - matchState.frames[0].t > REPLAY_WINDOW + 0.5) {
+                matchState.frames.shift();
+            }
+        }
+
+        function startReplay() {
+            const fr = matchState.pendingReplay;
+            matchState.pendingReplay = null;
+            if (!fr || fr.length < 12) return;
+            const end = fr[fr.length - 1].t;
+            const start = Math.max(fr[0].t, end - REPLAY_WINDOW);
+            matchState.replay = {
+                frames: fr,
+                t: start,
+                end,
+                lx: null,
+                ly: null,
+                saved: {
+                    players: players.map(p => ({ x: p.x, y: p.y, sprintTimer: p.sprintTimer, kickGlow: p.kickGlow })),
+                    ball: { x: ball.x, y: ball.y, powerShotTimer: ball.powerShotTimer, curveTimer: ball.curveTimer, trail: [] }
+                }
+            };
+            matchState.particles = [];
+            matchState.floatingTexts = [];
+            matchState.passIndicator = null;
+            ball.trail = [];
+            document.getElementById('replayBadge').classList.remove('hidden');
+            setTicker('🎬 Gol tekrarı (yavaş çekim)');
+        }
+
+        function stepReplay(dt) {
+            const rp = matchState.replay;
+            rp.t += dt * REPLAY_SPEED;
+            if (rp.t >= rp.end) { endReplay(); return; }
+            const fr = rp.frames;
+            let i = 0;
+            while (i < fr.length - 2 && fr[i + 1].t <= rp.t) i++;
+            const a = fr[i], b = fr[i + 1] || fr[i];
+            const span = (b.t - a.t) || 1;
+            const k = Math.max(0, Math.min(1, (rp.t - a.t) / span));
+            const L = (u, v) => u + (v - u) * k;
+            ball.x = L(a.b[0], b.b[0]);
+            ball.y = L(a.b[1], b.b[1]);
+            ball.powerShotTimer = a.b[2] ? 1 : 0;
+            ball.curveTimer = a.b[3] ? 1 : 0;
+            players.forEach((p, idx) => {
+                p.x = L(a.p[idx][0], b.p[idx][0]);
+                p.y = L(a.p[idx][1], b.p[idx][1]);
+                p.sprintTimer = a.p[idx][2] ? 1 : 0;
+                p.kickGlow = a.p[idx][3] ? 0.5 : 0;
+            });
+            // top izi
+            ball.trail.forEach(t => t.life -= dt * 3.2);
+            ball.trail = ball.trail.filter(t => t.life > 0);
+            if (rp.lx !== null && Math.hypot(ball.x - rp.lx, ball.y - rp.ly) > 3) {
+                ball.trail.push({ x: ball.x, y: ball.y, life: 1.0, curve: ball.curveTimer > 0 });
+            }
+            rp.lx = ball.x;
+            rp.ly = ball.y;
+        }
+
+        function endReplay() {
+            const rp = matchState.replay;
+            if (!rp) return;
+            matchState.replay = null;
+            resetPositionsForKickoff(matchState.kickoffTeam);
+            matchState.goalPauseTimer = 1.8;   // 3-2-1 geri sayım, sonra düdük
+            document.getElementById('replayBadge').classList.add('hidden');
+            setTicker('⏱️ Santra için hazırlanın...');
+        }
+
+        document.getElementById('replaySkipBtn').addEventListener('click', endReplay);
+
         function gameLoop(timestamp) {
             if (!matchState.running) return;
 
@@ -2375,7 +2640,10 @@
 
             if (dt > 0.1) dt = 0.1;
 
-            if (!matchState.paused && !matchState.ended) {
+            if (!matchState.paused && !matchState.ended && matchState.replay) {
+                stepReplay(dt);
+            } else if (!matchState.paused && !matchState.ended) {
+                if (matchState.pendingReplay && matchState.goalPauseTimer <= 1.2) startReplay();
                 const ballStep = Math.hypot(ball.vx, ball.vy) * dt;
                 const steps = Math.min(12, Math.max(1, Math.ceil(ballStep / 8)));
                 for (let i = 0; i < steps; i++) {
@@ -2383,6 +2651,7 @@
                     updatePhysics(dt / steps);
                     if (!matchState.running || matchState.ended) break;
                 }
+                if (!matchState.replay && matchState.goalPauseTimer <= 0 && !matchState.ended) recordFrame(dt);
                 updateScoreboardUI();
             }
 
@@ -2446,6 +2715,15 @@
 
         // Maç (yeniden) başlarken isimleri ilk haline döndür, değişiklikleri sıfırla
         function resetSubs() {
+            matchState.goalPauseTimer = 0;
+            const kc = document.getElementById('kickoffCount');
+            if (kc) { kc.classList.add('hidden'); kc.dataset.n = ''; }
+            matchState.replay = null;
+            matchState.pendingReplay = null;
+            matchState.frames = [];
+            matchState.recTime = 0;
+            const rb = document.getElementById('replayBadge');
+            if (rb) rb.classList.add('hidden');
             const tb = document.getElementById('subToasts');
             if (tb) tb.innerHTML = '';
             const ht = document.getElementById('halfToast');
@@ -2612,6 +2890,7 @@
             setTicker('🎨 Saha teması: ' + PITCH_THEMES[pitchTheme].name);
         });
         setTheme(pitchTheme);
+        setBallColor(ballColor);
 
         createPlayers();
         resizeCanvas();
