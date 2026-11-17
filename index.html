@@ -294,6 +294,12 @@
             <h1 class="text-xl font-black text-white">🏆 Lig</h1>
             <button id="leagueBackBtn" type="button" class="px-3 py-1.5 rounded-xl bg-slate-800 border border-slate-700 text-xs font-bold text-sky-300 cursor-pointer">⚙️ Ayarlar</button>
         </div>
+        <div class="flex items-center gap-1.5 mb-3">
+            <select id="leagueSelect" class="flex-1 min-w-0 px-3 py-2 rounded-xl bg-slate-800/90 border border-amber-400/40 text-sm font-bold text-white focus:outline-none"></select>
+            <button type="button" id="leagueNewBtn" title="Yeni lig" class="px-2.5 py-2 rounded-xl bg-slate-800 border border-slate-700 text-xs font-bold text-emerald-300 cursor-pointer">➕</button>
+            <button type="button" id="leagueRenameBtn" title="Adını değiştir" class="px-2.5 py-2 rounded-xl bg-slate-800 border border-slate-700 text-xs font-bold text-sky-300 cursor-pointer">✏️</button>
+            <button type="button" id="leagueDelBtn" title="Ligi sil" class="px-2.5 py-2 rounded-xl bg-slate-800 border border-slate-700 text-xs font-bold text-red-400 cursor-pointer">🗑️</button>
+        </div>
         <div id="leagueTabs" class="grid grid-cols-5 gap-1.5 mb-3">
             <button type="button" data-tab="table">📊 Puan</button>
             <button type="button" data-tab="play">⚽ Maç</button>
@@ -3136,16 +3142,35 @@
         }
         // PURE-END
 
-        function loadLeague() {
+        // Çoklu lig: { active: id, leagues: [{ id, name, teams, matches }] }. Eski tek lig verisi otomatik "Lig 1" olur.
+        function loadAll() {
             try {
                 const o = JSON.parse(localStorage.getItem(LEAGUE_KEY) || 'null');
-                if (o && Array.isArray(o.teams) && Array.isArray(o.matches)) return o;
+                if (o && Array.isArray(o.leagues) && o.leagues.length) {
+                    if (!o.leagues.some(l => l.id === o.active)) o.active = o.leagues[0].id;
+                    return o;
+                }
+                if (o && Array.isArray(o.teams) && Array.isArray(o.matches)) {
+                    return { active: 'l1', leagues: [{ id: 'l1', name: 'Lig 1', teams: o.teams, matches: o.matches }] };
+                }
             } catch (e) {}
-            return { teams: [], matches: [] };
+            return { active: 'l1', leagues: [{ id: 'l1', name: 'Lig 1', teams: [], matches: [] }] };
+        }
+        function saveAll(A) {
+            try { localStorage.setItem(LEAGUE_KEY, JSON.stringify(A)); return true; }
+            catch (e) { toast('⚠️ Kaydedilemedi (depolama dolu olabilir)'); return false; }
+        }
+        function activeLeague(A) { return A.leagues.find(l => l.id === A.active) || A.leagues[0]; }
+        function loadLeague() {
+            const l = activeLeague(loadAll());
+            return { teams: l.teams, matches: l.matches };
         }
         function saveLeague(L) {
-            try { localStorage.setItem(LEAGUE_KEY, JSON.stringify(L)); return true; }
-            catch (e) { toast('⚠️ Kaydedilemedi (depolama dolu olabilir)'); return false; }
+            const A = loadAll();
+            const l = activeLeague(A);
+            l.teams = L.teams;
+            l.matches = L.matches;
+            return saveAll(A);
         }
 
         let toastTimer;
@@ -3223,7 +3248,7 @@
             const ex = L.teams.find(t => t.name.toLowerCase() === name.toLowerCase());
             if (ex) { ex.name = name; ex.color = color; ex.names = names; ex.logo = logo; }
             else L.teams.push({ id: uid(), name, color, logo, names });
-            if (saveLeague(L)) toast(ex ? '✅ ' + name + ' güncellendi' : '✅ ' + name + ' lige kaydedildi');
+            if (saveLeague(L)) toast((ex ? '✅ ' + name + ' güncellendi' : '✅ ' + name + ' kaydedildi') + ' (' + activeLeague(loadAll()).name + ')');
         }
 
         function recordLeagueMatch() {
@@ -3231,7 +3256,8 @@
             const lg = matchState.leagueGame;
             if (!lg) { note.classList.add('hidden'); return; }
             if (matchState.recorded) return;
-            const L = loadLeague();
+            const A = loadAll();
+            const L = A.leagues.find(l => l.id === lg.league) || activeLeague(A);
             if (!L.teams.some(t => t.id === lg.home) || !L.teams.some(t => t.id === lg.away)) {
                 note.textContent = '⚠️ Takım ligde bulunamadı, sonuç işlenmedi';
                 note.classList.remove('hidden');
@@ -3242,7 +3268,7 @@
                 hg: matchState.homeScore, ag: matchState.awayScore,
                 date: Date.now(), scorers: matchState.scorers.slice()
             });
-            const ok = saveLeague(L);
+            const ok = saveAll(A);
             matchState.recorded = ok;
             note.textContent = ok ? '🏆 Sonuç lige işlendi' : '⚠️ Sonuç kaydedilemedi';
             note.classList.remove('hidden');
@@ -3346,17 +3372,20 @@
                 h += '</div>';
             }
             h += '<div class="rounded-2xl bg-slate-900/90 border border-slate-800 p-3 mt-3 space-y-2">' +
-                '<div class="text-[11px] font-semibold text-slate-400">💾 Yedek</div>' +
+                '<div class="text-[11px] font-semibold text-slate-400">💾 Yedek (tüm ligler)</div>' +
                 '<div class="grid grid-cols-2 gap-2">' +
                 '<button type="button" data-act="export" class="py-2 rounded-lg bg-slate-800 border border-slate-700 text-[11px] font-bold text-emerald-300 cursor-pointer">⬇️ Yedek Al</button>' +
                 '<button type="button" data-act="import" class="py-2 rounded-lg bg-slate-800 border border-slate-700 text-[11px] font-bold text-emerald-300 cursor-pointer">⬆️ Yedekten Yükle</button></div>' +
                 '<div class="grid grid-cols-2 gap-2">' +
                 '<button type="button" data-act="reset" class="py-2 rounded-lg bg-slate-800 border border-slate-700 text-[11px] font-bold text-amber-300 cursor-pointer">🔄 Puanları Sıfırla</button>' +
-                '<button type="button" data-act="wipe" class="py-2 rounded-lg bg-slate-800 border border-slate-700 text-[11px] font-bold text-red-400 cursor-pointer">⚠️ Hepsini Sil</button></div></div>';
+                '<button type="button" data-act="wipe" class="py-2 rounded-lg bg-slate-800 border border-slate-700 text-[11px] font-bold text-red-400 cursor-pointer">⚠️ Ligi Boşalt</button></div></div>';
             return h;
         }
 
         function renderLeague() {
+            const A = loadAll();
+            document.getElementById('leagueSelect').innerHTML = A.leagues.map(l =>
+                '<option value="' + esc(l.id) + '"' + (l.id === A.active ? ' selected' : '') + '>🏆 ' + esc(l.name) + '</option>').join('');
             const L = loadLeague();
             document.querySelectorAll('#leagueTabs button').forEach(b => {
                 const on = b.getAttribute('data-tab') === leagueTab;
@@ -3377,12 +3406,44 @@
 
         async function startLeagueMatch(h, a) {
             await Promise.all([loadTeamToSetup('home', h), loadTeamToSetup('away', a)]);
-            pendingLeague = { home: h.id, away: a.id };
+            pendingLeague = { home: h.id, away: a.id, league: loadAll().active };
             leagueScreen.classList.add('hidden');
             document.getElementById('startMatchBtn').click();
         }
 
         document.getElementById('openLeagueBtn').addEventListener('click', () => showLeague());
+        document.getElementById('leagueSelect').addEventListener('change', e => {
+            const A = loadAll();
+            if (A.leagues.some(l => l.id === e.target.value)) { A.active = e.target.value; saveAll(A); }
+            leagueSel.home = leagueSel.away = null;
+            renderLeague();
+        });
+        document.getElementById('leagueNewBtn').addEventListener('click', () => {
+            const A = loadAll();
+            const name = (prompt('Yeni ligin adı:', 'Lig ' + (A.leagues.length + 1)) || '').trim().slice(0, 24);
+            if (!name) return;
+            const id = uid();
+            A.leagues.push({ id, name, teams: [], matches: [] });
+            A.active = id;
+            if (saveAll(A)) { leagueSel.home = leagueSel.away = null; leagueTab = 'teams'; renderLeague(); toast('✅ ' + name + ' kuruldu'); }
+        });
+        document.getElementById('leagueRenameBtn').addEventListener('click', () => {
+            const A = loadAll();
+            const l = activeLeague(A);
+            const name = (prompt('Ligin yeni adı:', l.name) || '').trim().slice(0, 24);
+            if (!name) return;
+            l.name = name;
+            if (saveAll(A)) renderLeague();
+        });
+        document.getElementById('leagueDelBtn').addEventListener('click', () => {
+            const A = loadAll();
+            if (A.leagues.length < 2) { toast('Son lig silinemez, istersen adını değiştir ya da boşalt'); return; }
+            const l = activeLeague(A);
+            if (!confirm('"' + l.name + '" ligi silinsin mi? Takımları ve maçları da silinir. Bu geri alınamaz.')) return;
+            A.leagues = A.leagues.filter(x => x.id !== l.id);
+            A.active = A.leagues[0].id;
+            if (saveAll(A)) { leagueSel.home = leagueSel.away = null; renderLeague(); toast('🗑️ Lig silindi'); }
+        });
         document.getElementById('homeSaveTeam').addEventListener('click', () => saveTeamFromCard('home'));
         document.getElementById('awaySaveTeam').addEventListener('click', () => saveTeamFromCard('away'));
         document.getElementById('leagueBackBtn').addEventListener('click', () => {
@@ -3434,11 +3495,11 @@
                 window.scrollTo(0, 0);
                 toast('✏️ ' + t.name + ' Ev Sahibi kartına yüklendi. Aynı isimle kaydedersen güncellenir.');
             } else if (act === 'export') {
-                const blob = new Blob([JSON.stringify(L)], { type: 'application/json' });
+                const blob = new Blob([JSON.stringify(loadAll())], { type: 'application/json' });
                 const url = URL.createObjectURL(blob);
                 const a = document.createElement('a');
                 a.href = url;
-                a.download = 'haxball-lig-yedek.json';
+                a.download = 'haxball-ligler-yedek.json';
                 document.body.appendChild(a);
                 a.click();
                 a.remove();
@@ -3446,14 +3507,14 @@
             } else if (act === 'import') {
                 document.getElementById('leagueImportInput').click();
             } else if (act === 'reset') {
-                if (confirm('Tüm maç sonuçları silinsin mi? Takımlar kalır.')) {
+                if (confirm('Bu ligin tüm maç sonuçları silinsin mi? Takımlar kalır.')) {
                     L.matches = [];
                     saveLeague(L);
                     renderLeague();
                     toast('Puan durumu sıfırlandı');
                 }
             } else if (act === 'wipe') {
-                if (confirm('Tüm takımlar ve maçlar silinsin mi? Bu geri alınamaz.')) {
+                if (confirm('Bu ligdeki tüm takımlar ve maçlar silinsin mi? Bu geri alınamaz.')) {
                     saveLeague({ teams: [], matches: [] });
                     renderLeague();
                 }
@@ -3466,10 +3527,24 @@
             if (!f) return;
             const r = new FileReader();
             r.onload = () => {
+                let raw = null;
+                try { raw = JSON.parse(r.result); } catch (err) {}
+                if (raw && Array.isArray(raw.leagues)) {
+                    const leagues = raw.leagues.map(l => {
+                        const d = sanitizeLeague(l);
+                        return d ? { id: String((l && l.id) || uid()), name: String((l && l.name) || 'Lig').slice(0, 24), teams: d.teams, matches: d.matches } : null;
+                    }).filter(Boolean);
+                    if (!leagues.length) { toast('⚠️ Geçersiz yedek dosyası'); return; }
+                    if (confirm(leagues.length + ' lig yüklenecek. Mevcut TÜM ligler değiştirilsin mi?')) {
+                        const act = leagues.some(l => l.id === raw.active) ? raw.active : leagues[0].id;
+                        if (saveAll({ active: act, leagues })) { leagueSel.home = leagueSel.away = null; renderLeague(); toast('✅ Yedek yüklendi'); }
+                    }
+                    return;
+                }
                 let data = null;
-                try { data = sanitizeLeague(JSON.parse(r.result)); } catch (err) {}
+                try { data = sanitizeLeague(raw); } catch (err) {}
                 if (!data) { toast('⚠️ Geçersiz yedek dosyası'); return; }
-                if (confirm(data.teams.length + ' takım, ' + data.matches.length + ' maç yüklenecek. Mevcut lig verisi değiştirilsin mi?')) {
+                if (confirm(data.teams.length + ' takım, ' + data.matches.length + ' maç yüklenecek. Şu anki ligin verisi değiştirilsin mi?')) {
                     if (saveLeague(data)) { renderLeague(); toast('✅ Yedek yüklendi'); }
                 }
             };
