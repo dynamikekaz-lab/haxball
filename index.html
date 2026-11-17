@@ -65,7 +65,7 @@
                 <div class="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-emerald-500/15 border border-emerald-500/30 text-emerald-400 text-xs font-bold tracking-wider uppercase mb-2">
                     <span>⚽ 4v4 AI Simülasyon</span>
                     <span>•</span>
-                    <span>90 Dk = 45 Sn</span>
+                    <span id="durBadge">90 Dk = 45 Sn</span>
                 </div>
                 <h1 class="text-2xl font-black tracking-tight text-white">HaxBall 4v4 Arenası</h1>
                 <p class="text-xs text-slate-400 mt-1">Takım logosu (PNG) seç, renkleri ve isimleri ayarla!</p>
@@ -227,6 +227,19 @@
             </div>
         </div>
 
+        <!-- Maç Süresi -->
+        <div class="mt-4 bg-slate-900/90 border border-slate-800 rounded-2xl p-3">
+            <div class="flex items-center justify-between mb-2">
+                <div class="text-[11px] font-semibold text-slate-400">⏱️ Maç Süresi</div>
+                <div id="durValue" class="text-sm font-black text-emerald-400">45 sn</div>
+            </div>
+            <input type="range" id="durSlider" min="10" max="600" step="5" value="45" class="w-full accent-emerald-400 cursor-pointer">
+            <div class="flex justify-between text-[10px] text-slate-500 mt-1">
+                <span>10 sn</span>
+                <span>10 dk</span>
+            </div>
+        </div>
+
         <!-- Saha Teması -->
         <div class="mt-4 bg-slate-900/90 border border-slate-800 rounded-2xl p-3">
             <div class="text-[11px] font-semibold text-slate-400 mb-2">🎨 Saha Teması</div>
@@ -263,7 +276,7 @@
         <!-- Maçı Başlat Butonu -->
         <div class="pt-5">
             <button id="startMatchBtn" type="button" class="w-full py-4 rounded-2xl bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-400 hover:to-teal-400 active:scale-[0.98] text-slate-950 font-black text-base tracking-wide shadow-lg shadow-emerald-500/25 transition-all flex items-center justify-center gap-2 cursor-pointer">
-                <span>⚽ MAÇI BAŞLAT (45 SN)</span>
+                <span id="startBtnLabel">⚽ MAÇI BAŞLAT (45 SN)</span>
             </button>
         </div>
     </div>
@@ -640,7 +653,7 @@
         const GOAL_DEPTH = 16;
         const PLAYER_RADIUS = 16;
         const BALL_RADIUS = 9.5;
-        const TOTAL_REAL_SECONDS = 45.0;
+        let TOTAL_REAL_SECONDS = 45;   // maç süresi (gerçek saniye), kaydırıcıdan ayarlanır
 
         // Yuvarlatılmış köşe: gerçek bir daire yayı. Top/oyuncu yaya çarpınca normal vektörüne göre yansır.
         const CORNER_R = 34;
@@ -2891,6 +2904,29 @@
         });
         setTheme(pitchTheme);
         setBallColor(ballColor);
+
+        // MAÇ SÜRESİ KAYDIRICISI (10 sn - 10 dk)
+        const durSlider = document.getElementById('durSlider');
+        function fmtDur(sec) {
+            const m = Math.floor(sec / 60), r = sec % 60;
+            if (m === 0) return r + ' sn';
+            return r === 0 ? m + ' dk' : m + ' dk ' + r + ' sn';
+        }
+        function setDuration(sec) {
+            sec = Math.max(10, Math.min(600, Math.round(sec) || 45));
+            TOTAL_REAL_SECONDS = sec;
+            durSlider.value = sec;
+            document.getElementById('durValue').textContent = fmtDur(sec);
+            document.getElementById('durBadge').textContent = '90 Dk = ' + fmtDur(sec);
+            document.getElementById('startBtnLabel').textContent = '⚽ MAÇI BAŞLAT (' + fmtDur(sec).toUpperCase() + ')';
+            try { localStorage.setItem('haxballDur', String(sec)); } catch (e) {}
+        }
+        durSlider.addEventListener('input', () => setDuration(parseInt(durSlider.value, 10)));
+        {
+            let savedDur = 45;
+            try { savedDur = parseInt(localStorage.getItem('haxballDur'), 10) || 45; } catch (e) {}
+            setDuration(savedDur);
+        }
 
         createPlayers();
         resizeCanvas();

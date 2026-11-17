@@ -1,5 +1,5 @@
 // Sürümü değiştirirsen eski önbellek silinir (oyunu güncellediğinde v1 -> v2 yap)
-const CACHE = 'haxball-v5';
+const CACHE = 'haxball-v6';
 const CORE = ['./', './index.html', './manifest.json', './icon-192.png', './icon-512.png'];
 
 self.addEventListener('install', (e) => {
