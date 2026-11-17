@@ -53,7 +53,7 @@
         .animate-banner {
             animation: popBanner 1.6s cubic-bezier(0.22, 1, 0.36, 1) forwards;
         }
-    </style>
+        </style>
 </head>
 <body class="min-h-screen flex flex-col items-center justify-center bg-slate-950 text-slate-100">
 
@@ -367,7 +367,7 @@
 
             <!-- Maç Sonu Özet Ekranı (90:00) -->
             <div id="fullTimeOverlay" class="hidden absolute inset-0 bg-slate-950/90 backdrop-blur-sm flex items-center justify-center p-4 z-30">
-                <div class="w-full max-w-sm bg-slate-900 border border-slate-700 rounded-3xl p-5 shadow-2xl text-center">
+                <div class="w-full max-w-sm max-h-full overflow-y-auto bg-slate-900 border border-slate-700 rounded-3xl p-5 shadow-2xl text-center">
                     <div class="inline-block px-3 py-1 rounded-full bg-amber-500/20 text-amber-400 text-xs font-extrabold uppercase tracking-wider mb-2">
                         🏁 Maç Sona Erdi (90')
                     </div>
@@ -389,6 +389,7 @@
                         </div>
                     </div>
 
+                    <div id="ftRatings" class="mb-4"></div>
                     <!-- Maç İstatistikleri -->
                     <div class="space-y-2.5 text-xs mb-5 bg-slate-800/40 rounded-2xl p-3 border border-slate-800">
                         <div class="flex justify-between items-center">
@@ -805,6 +806,25 @@
         };
 
         let players = [];
+        (function () {
+            let cur = null;
+            matchState.prevToucher = null; matchState.prevTouchTime = 0; matchState.curTouchTime = 0;
+            Object.defineProperty(matchState, 'lastToucher', {
+                get() { return cur; },
+                set(p) {
+                    if (p === null) { cur = null; matchState.prevToucher = null; return; }
+                    if (p !== cur) { matchState.prevToucher = cur; matchState.prevTouchTime = matchState.curTouchTime; }
+                    cur = p; matchState.curTouchTime = matchState.elapsedReal;
+                }
+            });
+        })();
+        function pEnt(team, role) {
+            if (!matchState.pstats) matchState.pstats = {};
+            const name = (teamConfig[team].names && teamConfig[team].names[role]) || role;
+            const k = team + '|' + role + '|' + name;
+            return matchState.pstats[k] || (matchState.pstats[k] = { team, role, name, g: 0, a: 0, og: 0, oa: 0, shots: 0, passes: 0, conc: 0 });
+        }
+        function pStat(p, key) { if (p) pEnt(p.team, p.role)[key]++; }
         let animFrameId = null;
         let lastTimestamp = 0;
 
@@ -1231,7 +1251,7 @@
          * GERÇEK FALSO: top hedefin yanından geniş açıyla çıkar, kavis çizip hedefe girer.
          * Sönümlü hıza göre dönüş hızı (omega) ve süre (T) sayısal olarak çözülür.
          */
-        const FALSO_THETA = { rocket: 1.45, mega: 1.3, curve: 1.05, soft: 1.25, pass: 0.6 };
+        const FALSO_THETA = { rocket: 1.45, mega: 1.3, curve: 1.05, soft: 1.9, pass: 0.6 };
         const FALSO_DECAY = 0.9068;
         function falsoSim(v0, theta, T, omega) {
             const N = 40, h = T / N;
@@ -1750,7 +1770,7 @@
                             matchState.passTarget = { player: bestMate, life: 1.1 };
                             p.kickCooldown = 0.35;
                             p.kickGlow = 0.3;
-                            matchState.stats[isHome ? 'homePasses' : 'awayPasses']++;
+                            matchState.stats[isHome ? 'homePasses' : 'awayPasses']++; pStat(p, 'passes');
                             addFloatingText(p.x, p.y - 18, 'PAS', '#60a5fa');
                             matchState.passIndicator = { fromX: ball.x, fromY: ball.y, toX: bestMate.x, toY: bestMate.y, color: '#60a5fa', life: 0.4 };
                         } else if (passPlan) {
@@ -1768,7 +1788,7 @@
                             p.kickCooldown = 0.4;
                             p.kickGlow = 0.3;
                             sfx.playKick(0.9);
-                            matchState.stats[isHome ? 'homePasses' : 'awayPasses']++;
+                            matchState.stats[isHome ? 'homePasses' : 'awayPasses']++; pStat(p, 'passes');
                             const ot0 = matchState.oneTwo;
                             const isReturn = ot0 && ot0.to === p;
                             if (isReturn) matchState.oneTwo = null;
@@ -1811,7 +1831,7 @@
                                 p.kickGlow = 1.0;
                                 addFloatingText(p.x, p.y - 18, '☄️ ROKET FALSO!', '#f43f5e');
                                 setTicker(`☄️ ${teamConfig[p.team].name} takımından roket hızında aşırı falsolu şut!`);
-                                matchState.stats[isHome ? 'homeShots' : 'awayShots']++;
+                                matchState.stats[isHome ? 'homeShots' : 'awayShots']++; pStat(p, 'shots');
                             } else if (Math.random() < 0.01) {
                                 doKick(p, stx, sty, 640, { mega: true });
                                 ball.powerShotTimer = 0.85;
@@ -1820,14 +1840,14 @@
                                 p.kickGlow = 1.0;
                                 addFloatingText(p.x, p.y - 18, '🌪️ SÜPER FALSO!', '#e879f9');
                                 setTicker(`🌪️ ${teamConfig[p.team].name} takımından inanılmaz bir süper falsolu şut!`);
-                                matchState.stats[isHome ? 'homeShots' : 'awayShots']++;
+                                matchState.stats[isHome ? 'homeShots' : 'awayShots']++; pStat(p, 'shots');
                             } else if (Math.random() < 0.06 && Math.hypot(stx, sty) > 90) {
-                                doKick(p, stx, sty, 330, { soft: true });
+                                doKick(p, stx, sty, 400, { soft: true });
                                 sfx.playKick(1.1);
                                 p.kickGlow = 0.6;
                                 addFloatingText(p.x, p.y - 18, '🎯 ÇOK FALSOLU!', '#22d3ee');
                                 setTicker(`🎯 ${teamConfig[p.team].name} sert değil ama çok falsolu bir vuruş yaptı!`);
-                                matchState.stats[isHome ? 'homeShots' : 'awayShots']++;
+                                matchState.stats[isHome ? 'homeShots' : 'awayShots']++; pStat(p, 'shots');
                             } else if (Math.random() < 0.05) {
                                 doKick(p, stx, sty, 440);
                                 ball.powerShotTimer = 0.85;
@@ -1844,7 +1864,7 @@
                                 p.kickGlow = curveShot ? 0.7 : 0.35;
                                 addFloatingText(p.x, p.y - 18, curveShot ? '🌀 FALSO!' : 'ŞUT', curveShot ? '#c084fc' : '#facc15');
                                 if (curveShot) setTicker(`🌀 ${teamConfig[p.team].name} falsolu vuruş yaptı!`);
-                                matchState.stats[isHome ? 'homeShots' : 'awayShots']++;
+                                matchState.stats[isHome ? 'homeShots' : 'awayShots']++; pStat(p, 'shots');
                             }
                             p.kickCooldown = 0.38;
                         }
@@ -2006,7 +2026,7 @@
                 updateEffects(dt);
                 const cd = document.getElementById('kickoffCount');
                 const t = matchState.goalPauseTimer;
-                if (!matchState.pendingReplay && t > 0 && t <= 1.8) {
+                if (!matchState.pendingReplay && !matchState.replay && t > 0 && t <= 1.8) {
                     const n = Math.ceil(t / 0.6);
                     if (cd.dataset.n !== String(n)) {
                         cd.dataset.n = String(n);
@@ -2188,6 +2208,14 @@
                 const name = (teamConfig[who].names && teamConfig[who].names[role]) || role;
                 const gmin = Math.max(1, Math.min(90, Math.ceil((matchState.elapsedReal / TOTAL_REAL_SECONDS) * 90)));
                 matchState.scorers.push({ team: scoringTeam, name, own, min: gmin });
+                const defT = scoringTeam === 'home' ? 'away' : 'home';
+                pEnt(defT, 'Kaleci').conc++; pEnt(defT, 'Defans').conc++;
+                if (lt) {
+                    const pv = matchState.prevToucher;
+                    const fresh = pv && pv !== lt && pv.team === lt.team && (matchState.elapsedReal - matchState.prevTouchTime) < 4;
+                    if (own) { pStat(lt, 'og'); if (fresh) pStat(pv, 'oa'); }
+                    else { pStat(lt, 'g'); if (fresh) pStat(pv, 'a'); }
+                }
                 setTicker(`⚽ GOL! ${name}${own ? ' (kendi kalesine)' : ''} - ${teamConfig.home.name} ${matchState.homeScore}-${matchState.awayScore} ${teamConfig.away.name}`);
             }
             // GOL TEKRARI: sıfırlamadan önce son saniyeleri sakla
@@ -2198,6 +2226,30 @@
                 matchState.pendingReplay = matchState.frames.slice();
             }
             resetPositionsForKickoff(matchState.kickoffTeam);
+        }
+
+        function renderRatings() {
+            const box = document.getElementById('ftRatings');
+            const ents = Object.values(matchState.pstats || {});
+            const hg = matchState.homeScore, ag = matchState.awayScore;
+            ents.forEach(e => {
+                const gf = e.team === 'home' ? hg : ag, ga = e.team === 'home' ? ag : hg;
+                let r = 6.0 + 1.5 * e.g + 0.9 * e.a - 2.0 * e.og - 1.2 * e.oa + Math.min(e.shots, 6) * 0.08 + Math.min(e.passes, 10) * 0.06;
+                r += gf > ga ? 0.6 : (gf < ga ? -0.4 : 0);
+                if (e.role === 'Kaleci') { r -= 0.25 * e.conc; if (ga === 0) r += 1.0; }
+                else if (e.role === 'Defans') { r -= 0.15 * e.conc; if (ga === 0) r += 0.5; }
+                e.rating = Math.max(3, Math.min(10, r));
+            });
+            const best = ents.reduce((m, e) => (!m || e.rating > m.rating) ? e : m, null);
+            const col = r => r >= 8 ? '#34d399' : r >= 6.5 ? '#a3e635' : r >= 5.5 ? '#facc15' : '#f87171';
+            const side = t => ents.filter(e => e.team === t).map(e => {
+                const ic = (e.g ? ' ⚽' + e.g : '') + (e.a ? ' 🅰️' + e.a : '') + (e.og ? ' 🔴KK' + e.og : '') + (e.oa ? ' ⚠️KA' + e.oa : '');
+                return '<div class="flex items-center justify-between gap-1"><div class="min-w-0"><div class="truncate font-bold text-slate-200">' + (e === best ? '⭐ ' : '') + esc(e.name) + '</div><div class="text-[9px] text-slate-400">' + (ic.trim() || '&nbsp;') + '</div></div><span class="font-black text-xs" style="color:' + col(e.rating) + '">' + e.rating.toFixed(1) + '</span></div>';
+            }).join('');
+            box.innerHTML = '<div class="text-[10px] font-extrabold uppercase tracking-wider text-slate-400 mb-1.5">Oyuncu Puanları</div>' +
+                '<div class="grid grid-cols-2 gap-3 bg-slate-800/40 rounded-2xl p-3 border border-slate-800 text-left text-[11px]">' +
+                '<div class="space-y-1.5">' + side('home') + '</div><div class="space-y-1.5">' + side('away') + '</div></div>' +
+                '<div class="text-[9px] text-slate-500 mt-1">KK: kendi kalesine gol · KA: kendi kalesine asist</div>';
         }
 
         function showFullTimeSummary() {
@@ -2225,6 +2277,7 @@
             if (matchState.homeScore > matchState.awayScore) titleTxt = `${teamConfig.home.name} Kazandı! 🏆`;
             else if (matchState.awayScore > matchState.homeScore) titleTxt = `${teamConfig.away.name} Kazandı! 🏆`;
             document.getElementById('ftResultTitle').textContent = titleTxt;
+            renderRatings();
 
             fullTimeOverlay.classList.remove('hidden');
         }
@@ -2637,6 +2690,7 @@
             matchState.floatingTexts = [];
             matchState.passIndicator = null;
             ball.trail = [];
+            { const kc = document.getElementById('kickoffCount'); kc.classList.add('hidden'); kc.dataset.n = ''; }
             document.getElementById('replayBadge').classList.remove('hidden');
             setTicker('🎬 Gol tekrarı (yavaş çekim)');
         }
@@ -2769,6 +2823,7 @@
         // Maç (yeniden) başlarken isimleri ilk haline döndür, değişiklikleri sıfırla
         function resetSubs() {
             matchState.scorers = [];
+            matchState.pstats = {};
             matchState.recorded = false;
             matchState.lastToucher = null;
             matchState.goalPauseTimer = 0;
@@ -2788,6 +2843,7 @@
                 const cfg = teamConfig[t];
                 if (cfg.baseNames) cfg.names = Object.assign({}, cfg.baseNames);
                 (cfg.subs || []).forEach(sb => sb.done = false);
+                ['Kaleci', 'Defans', 'Orta Saha', 'Forvet'].forEach(r => pEnt(t, r));
             });
         }
 
@@ -2818,6 +2874,7 @@
                     sb.done = true;
                     const outName = (cfg.names && cfg.names[sb.role]) || sb.role;
                     cfg.names[sb.role] = sb.inName;
+                    pEnt(t, sb.role);
                     const pl = players.find(pp => pp.team === t && pp.role === sb.role);
                     if (pl) {
                         pl.kickGlow = 0.8;
