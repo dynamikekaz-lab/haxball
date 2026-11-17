@@ -1,5 +1,5 @@
 // Sürümü değiştirirsen eski önbellek silinir (oyunu güncellediğinde v1 -> v2 yap)
-const CACHE = 'haxball-v7';
+const CACHE = 'haxball-v9';
 const CORE = ['./', './index.html', './manifest.json', './icon-192.png', './icon-512.png'];
 
 self.addEventListener('install', (e) => {
@@ -17,6 +17,15 @@ self.addEventListener('activate', (e) => {
 // Önbellekten hemen ver, arkada güncelle (Tailwind ve yazı tipi de ilk açılışta kaydedilir)
 self.addEventListener('fetch', (e) => {
   if (e.request.method !== 'GET') return;
+  // Sayfa (index.html) önce ağdan alınır: güncelleme ilk açılışta görünür; çevrimdışıysa önbellekten gelir
+  if (e.request.mode === 'navigate') {
+    e.respondWith(
+      fetch(e.request)
+        .then((res) => { const c = res.clone(); caches.open(CACHE).then((ch) => ch.put('./index.html', c)); return res; })
+        .catch(() => caches.match('./index.html'))
+    );
+    return;
+  }
   e.respondWith(
     caches.open(CACHE).then((cache) =>
       cache.match(e.request, { ignoreSearch: true }).then((hit) => {
