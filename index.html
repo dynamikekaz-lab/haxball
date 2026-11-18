@@ -303,7 +303,7 @@
         <div id="leagueTabs" class="grid grid-cols-5 gap-1.5 mb-3">
             <button type="button" data-tab="table">📊 Puan</button>
             <button type="button" data-tab="play">⚽ Maç</button>
-            <button type="button" data-tab="scorers">🥇 Gol</button>
+            <button type="button" data-tab="scorers">🏅 Krallık</button>
             <button type="button" data-tab="history">📜 Geçmiş</button>
             <button type="button" data-tab="teams">👥 Takım</button>
         </div>
@@ -2290,8 +2290,7 @@
             resetPositionsForKickoff(matchState.kickoffTeam);
         }
 
-        function renderRatings() {
-            const box = document.getElementById('ftRatings');
+        function computeRatings() {
             const ents = Object.values(matchState.pstats || {});
             const hg = matchState.homeScore, ag = matchState.awayScore;
             ents.forEach(e => {
@@ -2303,6 +2302,12 @@
                 e.rating = Math.max(3, Math.min(10, r));
             });
             const best = ents.reduce((m, e) => (!m || e.rating > m.rating) ? e : m, null);
+            return { ents, best };
+        }
+
+        function renderRatings() {
+            const box = document.getElementById('ftRatings');
+            const { ents, best } = computeRatings();
             const col = r => r >= 8 ? '#34d399' : r >= 6.5 ? '#a3e635' : r >= 5.5 ? '#facc15' : '#f87171';
             const side = t => ents.filter(e => e.team === t).map(e => {
                 const ic = (e.g ? ' ⚽' + e.g : '') + (e.a ? ' 🅰️' + e.a : '') + (e.og ? ' 🔴KK' + e.og : '') + (e.oa ? ' ⚠️KA' + e.oa : '');
@@ -3109,6 +3114,26 @@
             }));
             return Object.values(map).sort((a, b) => b.g - a.g || a.name.localeCompare(b.name, 'tr'));
         }
+        // Yardımcı: oyuncu bazlı liste (takım + isim anahtarı)
+        function tally(L, pick) {
+            const map = {};
+            L.matches.forEach(m => pick(m).forEach(x => {
+                const tid = x.t === 'home' ? m.home : m.away;
+                const k = tid + '|' + x.n;
+                const e = map[k] || (map[k] = { tid, name: x.n, v: 0 });
+                e.v += x.v;
+            }));
+            return Object.values(map).filter(e => e.v > 0).sort((a, b) => b.v - a.v || a.name.localeCompare(b.name, 'tr'));
+        }
+        function computeAssists(L) {
+            return tally(L, m => (m.players || []).filter(p => p.a > 0).map(p => ({ t: p.t, n: p.n, v: p.a })));
+        }
+        function computeMotm(L) {
+            return tally(L, m => m.motm ? [{ t: m.motm.t, n: m.motm.n, v: 1 }] : []);
+        }
+        function computeCleanSheets(L) {
+            return tally(L, m => (m.players || []).filter(p => p.r === 'Kaleci' && (p.t === 'home' ? m.ag : m.hg) === 0).map(p => ({ t: p.t, n: p.n, v: 1 })));
+        }
         function sanitizeLeague(o) {
             if (!o || !Array.isArray(o.teams) || !Array.isArray(o.matches)) return null;
             const roles = ['Kaleci', 'Defans', 'Orta Saha', 'Forvet'];
@@ -3136,7 +3161,23 @@
                     name: String(s.name || '').slice(0, 10),
                     own: !!s.own,
                     min: parseInt(s.min, 10) || 0
-                }))
+                })),
+                players: (Array.isArray(m.players) ? m.players : []).filter(p => p && p.n).slice(0, 30).map(p => ({
+                    t: p.t === 'away' ? 'away' : 'home',
+                    n: String(p.n).slice(0, 10),
+                    r: String(p.r || '').slice(0, 12),
+                    g: Math.max(0, parseInt(p.g, 10) || 0),
+                    a: Math.max(0, parseInt(p.a, 10) || 0),
+                    og: Math.max(0, parseInt(p.og, 10) || 0),
+                    oa: Math.max(0, parseInt(p.oa, 10) || 0),
+                    rt: Math.max(0, Math.min(10, Number(p.rt) || 0))
+                })),
+                motm: (m.motm && m.motm.n) ? {
+                    t: m.motm.t === 'away' ? 'away' : 'home',
+                    n: String(m.motm.n).slice(0, 10),
+                    r: String(m.motm.r || '').slice(0, 12),
+                    rt: Math.max(0, Math.min(10, Number(m.motm.rt) || 0))
+                } : null
             }));
             return { teams, matches };
         }
@@ -3263,10 +3304,13 @@
                 note.classList.remove('hidden');
                 return;
             }
+            const { ents, best } = computeRatings();
             L.matches.push({
                 id: uid(), home: lg.home, away: lg.away,
                 hg: matchState.homeScore, ag: matchState.awayScore,
-                date: Date.now(), scorers: matchState.scorers.slice()
+                date: Date.now(), scorers: matchState.scorers.slice(),
+                players: ents.map(e => ({ t: e.team, n: e.name, r: e.role, g: e.g, a: e.a, og: e.og, oa: e.oa, rt: Math.round(e.rating * 10) / 10 })),
+                motm: best ? { t: best.team, n: best.name, r: best.role, rt: Math.round(best.rating * 10) / 10 } : null
             });
             const ok = saveAll(A);
             matchState.recorded = ok;
@@ -3316,20 +3360,28 @@
         }
 
         function viewScorers(L) {
-            const list = computeScorers(L);
-            if (!list.length) return emptyBox('Henüz atılan gol yok.');
             const byId = {};
             L.teams.forEach(t => byId[t.id] = t);
-            let h = '<div class="rounded-2xl bg-slate-900/90 border border-slate-800 overflow-hidden">';
-            list.slice(0, 20).forEach((s, i) => {
-                const t = byId[s.tid];
-                if (!t) return;
-                h += '<div class="flex items-center gap-2 px-3 py-2 border-t border-slate-800 first:border-t-0">' +
-                    '<span class="w-5 text-xs font-bold text-slate-400">' + (i + 1) + '</span>' + teamBadge(t, 22) +
-                    '<div class="flex-1 min-w-0"><div class="text-xs font-bold text-white truncate">' + esc(s.name) + '</div><div class="text-[10px] text-slate-400 truncate">' + esc(t.name) + '</div></div>' +
-                    '<span class="text-sm font-black text-amber-400">' + s.g + ' ⚽</span></div>';
-            });
-            return h + '</div>';
+            const goals = computeScorers(L).map(s => ({ tid: s.tid, name: s.name, v: s.g }));
+            const sec = (title, list, icon, color, empty) => {
+                let h = '<div class="mb-3"><div class="text-[11px] font-extrabold uppercase tracking-wider text-slate-400 mb-1.5 px-1">' + title + '</div>' +
+                    '<div class="rounded-2xl bg-slate-900/90 border border-slate-800 overflow-hidden">';
+                const rows = list.filter(s => byId[s.tid]).slice(0, 10);
+                if (!rows.length) h += '<div class="px-3 py-3 text-[11px] text-slate-500">' + empty + '</div>';
+                rows.forEach((s, i) => {
+                    const t = byId[s.tid];
+                    h += '<div class="flex items-center gap-2 px-3 py-2 border-t border-slate-800 first:border-t-0">' +
+                        '<span class="w-5 text-xs font-bold text-slate-400">' + (i + 1) + '</span>' + teamBadge(t, 22) +
+                        '<div class="flex-1 min-w-0"><div class="text-xs font-bold text-white truncate">' + esc(s.name) + '</div><div class="text-[10px] text-slate-400 truncate">' + esc(t.name) + '</div></div>' +
+                        '<span class="text-sm font-black ' + color + '">' + s.v + ' ' + icon + '</span></div>';
+                });
+                return h + '</div></div>';
+            };
+            return sec('🥇 Gol Krallığı', goals, '⚽', 'text-amber-400', 'Henüz atılan gol yok.') +
+                sec('🅰️ Asist Krallığı', computeAssists(L).map(s => ({ tid: s.tid, name: s.name, v: s.v })), '🅰️', 'text-sky-400', 'Henüz asist yok.') +
+                sec('⭐ Maçın Adamı', computeMotm(L).map(s => ({ tid: s.tid, name: s.name, v: s.v })), '⭐', 'text-yellow-300', 'Henüz maçın adamı yok.') +
+                sec('🧤 Gol Yemeyen Maç (Kaleci)', computeCleanSheets(L).map(s => ({ tid: s.tid, name: s.name, v: s.v })), '🧤', 'text-emerald-400', 'Henüz gol yemeyen maç yok.') +
+                '<div class="text-[10px] text-slate-500 px-1">Asist, maçın adamı ve gol yemeyen maç bu güncellemeden sonra oynanan lig maçlarından hesaplanır.</div>';
         }
 
         function viewHistory(L) {
@@ -3350,6 +3402,7 @@
                     '<span class="text-base font-black text-white px-2">' + m.hg + ' - ' + m.ag + '</span>' +
                     '<div class="flex items-center justify-end gap-1.5 flex-1 min-w-0"><span class="text-xs font-bold text-white truncate">' + esc(b.name) + '</span>' + teamBadge(b, 24) + '</div></div>' +
                     ((hl || al) ? '<div class="grid grid-cols-2 gap-2 mt-1.5 text-[10px] text-slate-400"><div>' + hl + '</div><div class="text-right">' + al + '</div></div>' : '') +
+                    (m.motm ? '<div class="mt-1.5 text-[10px] text-yellow-300 font-bold">⭐ Maçın adamı: ' + esc(m.motm.n) + ' (' + esc((m.motm.t === 'home' ? a : b).name) + ') ' + m.motm.rt.toFixed(1) + '</div>' : '') +
                     '</div>';
             });
             return h + '</div>';
