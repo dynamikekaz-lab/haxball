@@ -1060,7 +1060,10 @@
          * OYUNCU KURULUMU
          */
         // Gizli oyuncu özellikleri: isimden türetilir (aynı isim = hep aynı özellikler). Ekranda gösterilmez.
-        // spd: hız, acc: ivme, pow: vuruş gücü, iq: öngörü/pas kalitesi, gk: kaleci kurtarış becerisi
+        // spd: hız, acc: ivme, pow: vuruş gücü, spr: sprint, iq: paslaşma/öngörü zekası,
+        // curve: falso becerisi, shot: şut isabeti/kalitesi, gk: kaleci kurtarış (tier'e bağlı)
+        // Varsayılan rol isimleri (Kaleci, Defans, Orta Saha, Forvet) her zaman orta seviye (tier 2)
+        const DEFAULT_ROLE_NAMES = new Set(['kaleci', 'defans', 'orta saha', 'ortasaha', 'forvet', 'gk', 'df', 'os', 'fv']);
         function traitsFor(name) {
             const str = String(name || '').trim().toLocaleLowerCase('tr');
             let h = 2166136261;
@@ -1071,18 +1074,31 @@
             rnd(); rnd();
             const acc = 0.96 + 0.08 * rnd();
             const noise = 0.97 + 0.06 * rnd();
-            const iq = rnd(), gk = rnd();
             // 5 güç grubu: 0 çok güçsüz, 1 güçsüz, 2 orta, 3 güçlü, 4 çok güçlü (%10 / %22 / %36 / %22 / %10)
-            const r = rnd();
-            const tier = r < 0.10 ? 0 : r < 0.32 ? 1 : r < 0.68 ? 2 : r < 0.90 ? 3 : 4;
+            // Varsayılan pozisyon adları → hep orta (2)
+            let tier;
+            if (DEFAULT_ROLE_NAMES.has(str) || DEFAULT_ROLE_NAMES.has(str.replace(/\s+/g, ''))) {
+                tier = 2;
+            } else {
+                const r = rnd();
+                tier = r < 0.10 ? 0 : r < 0.32 ? 1 : r < 0.68 ? 2 : r < 0.90 ? 3 : 4;
+            }
+            // Tier tabanlı çekirdek + hafif gürültü (aynı isim = aynı tier)
+            const iqCore = [0.12, 0.32, 0.52, 0.74, 0.92][tier];
+            const curveCore = [0.10, 0.28, 0.50, 0.72, 0.94][tier];
+            const shotCore = [0.12, 0.30, 0.52, 0.76, 0.94][tier];
+            // Kaleci: kötü tier gerçekten kötü, iyi tier belirgin şekilde iyi
+            const gkCore = [0.08, 0.25, 0.50, 0.78, 0.96][tier];
             return {
                 tier,
                 spd: [0.96, 0.98, 1.0, 1.02, 1.04][tier] * (0.99 + 0.02 * noise),
                 acc,
                 pow: [0.72, 0.86, 1.0, 1.14, 1.28][tier] * noise,
                 spr: [0.55, 0.78, 1.0, 1.22, 1.45][tier],
-                iq,
-                gk
+                iq: Math.max(0.02, Math.min(0.99, iqCore + (rnd() - 0.5) * 0.12)),
+                curve: Math.max(0.02, Math.min(0.99, curveCore + (rnd() - 0.5) * 0.12)),
+                shot: Math.max(0.02, Math.min(0.99, shotCore + (rnd() - 0.5) * 0.12)),
+                gk: Math.max(0.02, Math.min(0.99, gkCore + (rnd() - 0.5) * 0.10))
             };
         }
         function applyTraits(p) {
@@ -1257,6 +1273,8 @@
             matchState.passIndicator = null;
             matchState.floatingTexts = [];
             matchState.frames = [];
+            // Santra sonrası kısa süre kendi kalesine vuruşu engelle
+            matchState.kickoffProtect = 2.8;
 
             players.forEach(p => {
                 p.vx = 0;
@@ -1443,6 +1461,31 @@
                     ux /= ul; uy /= ul;
                 }
             }
+            // Sadece kendi kale AĞZINA giden vuruşları engelle — geri pas serbest
+            if (p) {
+                const isHome = p.team === 'home';
+                const goalY = isHome ? (PITCH_H - WALL_PAD) : WALL_PAD;
+                const dy = goalY - ball.y;
+                const towardOwn = isHome ? (uy > 0.08) : (uy < -0.08);
+                let intoMouth = false;
+                if (towardOwn && Math.abs(uy) > 0.05) {
+                    const t = dy / uy;
+                    if (t > 0 && t < 320) {
+                        const crossX = ball.x + ux * t;
+                        intoMouth = Math.abs(crossX - PITCH_W / 2) < (GOAL_WIDTH / 2 + 10);
+                    }
+                }
+                // Ağza gidiyorsa yana/ileri aç; normal geri paslara dokunma
+                if (intoMouth) {
+                    const fwd = isHome ? -1 : 1;
+                    const side = (ball.x < PITCH_W / 2) ? -0.75 : 0.75;
+                    ux = side;
+                    uy = fwd * 0.45 + uy * 0.2;
+                    const ul = Math.hypot(ux, uy) || 1;
+                    ux /= ul; uy /= ul;
+                    opts = Object.assign({}, opts, { rocket: false, mega: false, soft: false, curve: false });
+                }
+            }
             ball.curveTimer = 0;
             ball.curveRate = 0;
             const fal = opts.rocket ? 'rocket' : opts.mega ? 'mega' : opts.soft ? 'soft' : opts.curve ? (opts.pass ? 'pass' : 'curve') : null;
@@ -1592,30 +1635,35 @@
                         ? (ball.y > PITCH_H - WALL_PAD - 130 && Math.abs(ball.x - cx) < 130)
                         : (ball.y < WALL_PAD + 130 && Math.abs(ball.x - cx) < 130);
 
-                    if ((isPrimaryChaser || inClearZone) && Math.hypot(predBallX - p.x, predBallY - p.y) < 150) {
+                    if ((isPrimaryChaser || inClearZone) && Math.hypot(predBallX - p.x, predBallY - p.y) < (110 + 60 * (p.tr.gk || 0.5))) {
                         targetX = predBallX;
                         targetY = predBallY;
-                        speedFactor = 1.1;
+                        speedFactor = 0.85 + 0.45 * (p.tr.gk || 0.5);
                     } else {
                         let aimX = predBallX;
                         speedFactor = 0.82;
-                        // Kaleye gelen şut: top kale çizgisine nerede varacak? İyi kaleci oraya önceden kayar
+                        // Kaleye gelen şut: iyi kaleci topun geleceği noktayı daha erken ve daha doğru okur
                         const toward = isHome ? ball.vy : -ball.vy;
                         const dGoal = Math.abs(ownGoalY - ball.y);
+                        const gkSkill = p.tr.gk || 0.5;
                         if (toward > 110 && ((isHome && ball.y < ownGoalY) || (!isHome && ball.y > ownGoalY))) {
                             const KD = 0.9068;
                             const frac = dGoal * KD / toward;
                             if (frac < 0.97) {
                                 const tHit = -Math.log(1 - frac) / KD;
-                                if (tHit < 1.4) {
+                                // Kötü kaleci sadece çok yakın şutlarda tepki verir
+                                if (tHit < (0.7 + 1.0 * gkSkill)) {
                                     const ix = ball.x + ball.vx * (1 - Math.exp(-KD * tHit)) / KD;
-                                    const w = 0.1 + 0.45 * p.tr.gk;
+                                    // Kötü: neredeyse tahmin yok; iyi: neredeyse tam noktaya kayar
+                                    const w = 0.05 + 0.85 * gkSkill;
                                     aimX = aimX * (1 - w) + ix * w;
-                                    speedFactor = 0.9 + 0.3 * p.tr.gk;
+                                    speedFactor = 0.72 + 0.55 * gkSkill;
                                 }
                             }
                         }
-                        targetX = Math.max(cx - GOAL_WIDTH / 2 + 12, Math.min(cx + GOAL_WIDTH / 2 - 12, aimX));
+                        // Kötü kaleci kale ağzında daha dar alanda gezinir (geç kalır)
+                        const mouthPad = 8 + 18 * (1 - gkSkill);
+                        targetX = Math.max(cx - GOAL_WIDTH / 2 + mouthPad, Math.min(cx + GOAL_WIDTH / 2 - mouthPad, aimX));
                         targetY = gkHomeY;
                     }
                 } else if (p.role === 'Defans') {
@@ -1787,20 +1835,26 @@
                         const ot = matchState.oneTwo;
                         const cands = [];
                         teammates.forEach(m => {
-                            if (m.role === 'Kaleci') return;
+                            // Kaleciye kısa geri pas olabilir; ara pas (through) olmaz
                             const d = Math.hypot(m.x - p.x, m.y - p.y);
                             if (d < 55 || d > 330) return;
                             const progress = fwdDir * (m.y - p.y);
                             const oppNear = Math.min(...opps.map(o => Math.hypot(o.x - m.x, o.y - m.y)));
                             // ara pas hedefi: arkadaşın önündeki boşluk
                             const leadX = Math.max(WALL_PAD + 40, Math.min(PITCH_W - WALL_PAD - 40, m.x + m.vx * 0.45 + (cx - m.x) * 0.15));
-                            const leadY = Math.max(WALL_PAD + 60, Math.min(PITCH_H - WALL_PAD - 60, m.y + fwdDir * 60 + m.vy * 0.3));
-                            const throughOk = progress > 30 && m.role !== 'Defans'
+                            let leadY = Math.max(WALL_PAD + 60, Math.min(PITCH_H - WALL_PAD - 60, m.y + fwdDir * 60 + m.vy * 0.3));
+                            // through asla kendi kale çizgisine inmesin
+                            if (isHome) leadY = Math.min(leadY, PITCH_H - WALL_PAD - 110);
+                            else leadY = Math.max(leadY, WALL_PAD + 110);
+                            const throughOk = m.role !== 'Kaleci' && progress > 30 && m.role !== 'Defans'
                                 && laneClear(ball.x, ball.y, leadX, leadY, p.team)
                                 && Math.min(...opps.map(o => Math.hypot(o.x - leadX, o.y - leadY))) > 50;
                             const directOk = laneClear(ball.x, ball.y, m.x, m.y, p.team);
                             if (!throughOk && !directOk) return;
+                            // Geri pas serbest; skor biraz düşük ama yasak değil
                             let score = Math.min(oppNear, 100) / 100 + progress / 160 - d / 700 + Math.random() * (0.4 - 0.3 * p.tr.iq);
+                            if (progress < 0) score -= 0.08; // hafif ceza, tamamen kesme
+                            if (m.role === 'Kaleci') score -= 0.15;
                             if (ot && ot.to === p && ot.from === m) score += 1.2;   // duvar pasında geri pas
                             if (throughOk) score += 0.35;
                             cands.push({ m, score, through: throughOk && (!directOk || Math.random() < 0.65), leadX, leadY });
@@ -1922,7 +1976,7 @@
                             const ptx = aimX - ball.x;
                             const pty = aimY - ball.y;
                             const pd = Math.hypot(ptx, pty) || 1;
-                            const useCurve = !passPlan.through && pd > 180 && Math.random() < 0.12;
+                            const useCurve = !passPlan.through && pd > 180 && Math.random() < (0.05 + 0.22 * (p.tr.curve || 0.5));
                             const spd = Math.max(250, Math.min(440, pd * 2.2 + 60));
                             doKick(p, ptx, pty, spd, { curve: useCurve, pass: true });
                             matchState.passTarget = { player: m, life: 1.5, through: passPlan.through, ax: aimX, ay: aimY };
@@ -1958,13 +2012,18 @@
                             }
                             matchState.passIndicator = { fromX: ball.x, fromY: ball.y, toX: aimX, toY: aimY, color: passPlan.through ? '#fbbf24' : '#60a5fa', life: 0.45 };
                         } else {
-                            const goalTargetX = (PITCH_W - GOAL_WIDTH) / 2 + GOAL_WIDTH / 2 + (Math.random() - 0.5) * 50;
+                            // Şut isabeti: yüksek shot → hedef daralır (daha isabetli)
+                            const aimSpread = 70 - 50 * (p.tr.shot || 0.5);
+                            const goalTargetX = (PITCH_W - GOAL_WIDTH) / 2 + GOAL_WIDTH / 2 + (Math.random() - 0.5) * aimSpread;
                             const goalTargetY = oppGoalY;
                             const stx = goalTargetX - ball.x;
                             const sty = goalTargetY - ball.y;
                             const stLen = Math.hypot(stx, sty) || 1;
+                            const cv = p.tr.curve || 0.5;
+                            const sh = p.tr.shot || 0.5;
 
-                            if (Math.random() < 0.004) {
+                            // Falso/roket ihtimalleri oyuncunun curve + shot becerisine bağlı
+                            if (Math.random() < 0.002 + 0.012 * cv * sh) {
                                 doKick(p, stx, sty, 780, { rocket: true });
                                 ball.powerShotTimer = 0.9;
                                 matchState.shakeTimer = 0.5;
@@ -1973,7 +2032,7 @@
                                 addFloatingText(p.x, p.y - 18, '☄️ ROKET FALSO!', '#f43f5e');
                                 setTicker(`☄️ ${teamConfig[p.team].name} takımından roket hızında aşırı falsolu şut!`);
                                 matchState.stats[isHome ? 'homeShots' : 'awayShots']++; pStat(p, 'shots');
-                            } else if (Math.random() < 0.01) {
+                            } else if (Math.random() < 0.004 + 0.025 * cv * sh) {
                                 doKick(p, stx, sty, 640, { mega: true });
                                 ball.powerShotTimer = 0.85;
                                 matchState.shakeTimer = 0.4;
@@ -1982,14 +2041,14 @@
                                 addFloatingText(p.x, p.y - 18, '🌪️ SÜPER FALSO!', '#e879f9');
                                 setTicker(`🌪️ ${teamConfig[p.team].name} takımından inanılmaz bir süper falsolu şut!`);
                                 matchState.stats[isHome ? 'homeShots' : 'awayShots']++; pStat(p, 'shots');
-                            } else if (Math.random() < 0.06 && Math.hypot(stx, sty) > 90) {
+                            } else if (Math.random() < 0.03 + 0.12 * cv && Math.hypot(stx, sty) > 90) {
                                 doKick(p, stx, sty, 400, { soft: true });
                                 sfx.playKick(1.1);
                                 p.kickGlow = 0.6;
                                 addFloatingText(p.x, p.y - 18, '🎯 ÇOK FALSOLU!', '#22d3ee');
                                 setTicker(`🎯 ${teamConfig[p.team].name} sert değil ama çok falsolu bir vuruş yaptı!`);
                                 matchState.stats[isHome ? 'homeShots' : 'awayShots']++; pStat(p, 'shots');
-                            } else if (Math.random() < 0.05) {
+                            } else if (Math.random() < 0.02 + 0.08 * sh) {
                                 doKick(p, stx, sty, 440);
                                 ball.powerShotTimer = 0.85;
                                 matchState.shakeTimer = 0.28;
@@ -1997,8 +2056,9 @@
                                 p.kickGlow = 0.8;
                                 addFloatingText(p.x, p.y - 18, '🔥 POWER SHOT!', '#f97316');
                                 setTicker(`🔥 ${teamConfig[p.team].name} takımından harika bir Power Shot!`);
+                                matchState.stats[isHome ? 'homeShots' : 'awayShots']++; pStat(p, 'shots');
                             } else {
-                                const curveShot = Math.hypot(stx, sty) > 110 && Math.random() < 0.45;
+                                const curveShot = Math.hypot(stx, sty) > 110 && Math.random() < (0.18 + 0.55 * cv);
                                 doKick(p, stx, sty, curveShot ? 380 : 290, { curve: curveShot });
                                 if (curveShot) { sfx.playPowerShot(); matchState.shakeTimer = 0.18; }
                                 else sfx.playKick(1.2);
@@ -2302,6 +2362,7 @@
             updateEffects(dt);
 
             matchState.elapsedReal += dt;
+            if (matchState.kickoffProtect > 0) matchState.kickoffProtect = Math.max(0, matchState.kickoffProtect - dt);
             checkSubs();
 
             if (matchState.half === 1 && matchState.elapsedReal >= TOTAL_REAL_SECONDS / 2) {
@@ -2824,6 +2885,8 @@
             const fr = matchState.pendingReplay;
             matchState.pendingReplay = null;
             if (!fr || fr.length < 12) return;
+            // Tekrar sırasında "Guuul" konuşması devam etmesin
+            try { if ('speechSynthesis' in window) window.speechSynthesis.cancel(); } catch (e) {}
             const end = fr[fr.length - 1].t;
             const start = Math.max(fr[0].t, end - REPLAY_WINDOW);
             matchState.replay = {
@@ -3484,17 +3547,43 @@
             return '<div class="rounded-2xl bg-slate-900/90 border border-slate-800 p-5 text-center text-xs text-slate-400">' + msg + '</div>';
         }
 
+        function zoneColor(rank, n) {
+            // rank 0-based. Yeşil: şampiyon, Mavi: ŞL, Turuncu: Avrupa/play-off, Kırmızı: küme düşme
+            if (n < 2) return null;
+            if (rank === 0) return '#22c55e';
+            if (rank <= 2 && n >= 4) return '#3b82f6';
+            if (rank === 3 && n >= 6) return '#f97316';
+            const relCount = n >= 10 ? 3 : (n >= 6 ? 2 : (n >= 4 ? 1 : 0));
+            if (relCount && rank >= n - relCount) return '#ef4444';
+            if (relCount && n >= 8 && rank === n - relCount - 1) return '#f97316';
+            return null;
+        }
         function viewTable(L) {
             if (!L.teams.length) return emptyBox('Henüz takım yok. Ayarlar ekranında takımını hazırla ve <b class="text-emerald-400">💾 Lige Kaydet</b>\'e bas.');
-            let h = '<div class="rounded-2xl bg-slate-900/90 border border-slate-800 overflow-hidden"><table class="w-full text-[11px]"><thead><tr class="text-slate-400 bg-slate-950/60"><th class="py-2 pl-2 text-left w-6">#</th><th class="text-left">Takım</th><th>O</th><th>G</th><th>B</th><th>M</th><th>AV</th><th class="pr-2 text-emerald-400">P</th></tr></thead><tbody>';
-            computeTable(L).forEach((r, i) => {
+            const rows = computeTable(L);
+            const n = rows.length;
+            let h = '<div class="rounded-2xl bg-slate-900/90 border border-slate-800 overflow-hidden"><table class="w-full text-[11px]"><thead><tr class="text-slate-300 bg-slate-950/60"><th class="py-2 pl-2 text-left w-6">#</th><th class="text-left">Takım</th><th class="text-slate-200">O</th><th class="text-slate-200">G</th><th class="text-slate-200">B</th><th class="text-slate-200">M</th><th class="text-slate-200">AV</th><th class="pr-2 text-emerald-400">P</th></tr></thead><tbody>';
+            rows.forEach((r, i) => {
                 const av = r.gf - r.ga;
-                h += '<tr class="border-t border-slate-800 text-center text-slate-200"><td class="py-2 pl-2 text-left font-bold text-slate-400">' + (i + 1) + '</td>' +
-                    '<td class="text-left"><div class="flex items-center gap-1.5 min-w-0">' + teamBadge(r.team, 20) + '<span class="truncate font-bold text-white max-w-[100px]">' + esc(r.team.name) + '</span></div></td>' +
-                    '<td>' + r.p + '</td><td>' + r.w + '</td><td>' + r.d + '</td><td>' + r.l + '</td><td>' + (av > 0 ? '+' + av : av) + '</td>' +
-                    '<td class="pr-2 font-black text-emerald-400">' + r.pts + '</td></tr>';
+                const zc = zoneColor(i, n);
+                const bar = zc
+                    ? '<span style="display:inline-block;width:4px;height:18px;border-radius:2px;background:' + zc + ';margin-right:6px;vertical-align:middle;flex-shrink:0"></span>'
+                    : '<span style="display:inline-block;width:4px;height:18px;margin-right:6px;flex-shrink:0"></span>';
+                h += '<tr class="border-t border-slate-800 text-center" style="color:#e2e8f0">' +
+                    '<td class="py-2 pl-2 text-left font-bold" style="color:#cbd5e1">' + bar + (i + 1) + '</td>' +
+                    '<td class="text-left"><div class="flex items-center gap-1.5 min-w-0">' + teamBadge(r.team, 20) + '<span class="truncate font-bold max-w-[100px]" style="color:#ffffff">' + esc(r.team.name) + '</span></div></td>' +
+                    '<td style="color:#e2e8f0">' + r.p + '</td><td style="color:#e2e8f0">' + r.w + '</td><td style="color:#e2e8f0">' + r.d + '</td><td style="color:#e2e8f0">' + r.l + '</td><td style="color:#e2e8f0">' + (av > 0 ? '+' + av : av) + '</td>' +
+                    '<td class="pr-2 font-black" style="color:#34d399">' + r.pts + '</td></tr>';
             });
-            return h + '</tbody></table></div><div class="text-[10px] text-slate-500 mt-2 px-1">O: oynanan, G: galibiyet, B: beraberlik, M: mağlubiyet, AV: averaj, P: puan</div>';
+            h += '</tbody></table></div>';
+            h += '<div class="flex flex-wrap gap-3 mt-2 px-1 text-[10px]" style="color:#94a3b8">' +
+                '<span><span style="display:inline-block;width:8px;height:8px;border-radius:2px;background:#22c55e;margin-right:4px"></span>Şampiyon</span>' +
+                '<span><span style="display:inline-block;width:8px;height:8px;border-radius:2px;background:#3b82f6;margin-right:4px"></span>Şampiyonlar Ligi</span>' +
+                '<span><span style="display:inline-block;width:8px;height:8px;border-radius:2px;background:#f97316;margin-right:4px"></span>Avrupa / Play-off</span>' +
+                '<span><span style="display:inline-block;width:8px;height:8px;border-radius:2px;background:#ef4444;margin-right:4px"></span>Küme düşme</span>' +
+                '</div>';
+            h += '<div class="text-[10px] mt-1 px-1" style="color:#64748b">O: oynanan, G: galibiyet, B: beraberlik, M: mağlubiyet, AV: averaj, P: puan</div>';
+            return h;
         }
 
         function viewPlay(L) {
