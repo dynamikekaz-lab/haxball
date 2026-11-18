@@ -1049,6 +1049,32 @@
         /**
          * OYUNCU KURULUMU
          */
+        // Gizli oyuncu özellikleri: isimden türetilir (aynı isim = hep aynı özellikler). Ekranda gösterilmez.
+        // spd: hız, acc: ivme, pow: vuruş gücü, iq: öngörü/pas kalitesi, gk: kaleci kurtarış becerisi
+        function traitsFor(name) {
+            const str = String(name || '').trim().toLocaleLowerCase('tr');
+            let h = 2166136261;
+            for (let i = 0; i < str.length; i++) { h ^= str.charCodeAt(i); h = Math.imul(h, 16777619); }
+            h >>>= 0;
+            let a = h || 1;
+            const rnd = () => { a = (a + 0x6D2B79F5) | 0; let t = Math.imul(a ^ (a >>> 15), 1 | a); t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t; return ((t ^ (t >>> 14)) >>> 0) / 4294967296; };
+            rnd(); rnd();
+            return {
+                spd: 0.965 + 0.07 * rnd(),
+                acc: 0.96 + 0.08 * rnd(),
+                pow: 0.95 + 0.10 * rnd(),
+                iq: rnd(),
+                gk: rnd()
+            };
+        }
+        function applyTraits(p) {
+            if (!p.base) p.base = { maxSpeed: p.maxSpeed, accel: p.accel };
+            const nm = (teamConfig[p.team].names && teamConfig[p.team].names[p.role]) || p.role;
+            p.tr = traitsFor(nm);
+            p.maxSpeed = p.base.maxSpeed * p.tr.spd;
+            p.accel = p.base.accel * p.tr.acc;
+        }
+
         function createPlayers() {
             const cx = PITCH_W / 2;
             const cy = PITCH_H / 2;
@@ -1185,6 +1211,7 @@
                     sprintCooldown: 2 + Math.random() * 2
                 });
             });
+            players.forEach(applyTraits);
         }
 
         function resetPositionsForKickoff(kickoffTeam = 'home') {
@@ -1376,6 +1403,7 @@
             return null;
         }
         function doKick(p, dirX, dirY, speed, opts = {}) {
+            if (p && p.tr) speed *= p.tr.pow;
             let len = Math.hypot(dirX, dirY) || 1;
             let ux = dirX / len, uy = dirY / len;
             // Oyuncu kendi bedeninin içinden vuramaz: hedef oyuncunun arkasındaysa top yana kayar
@@ -1519,6 +1547,10 @@
                 const isHome = p.team === 'home';
                 const isPrimaryChaser = (isHome ? homeChaser === p : awayChaser === p);
                 const teammates = players.filter(m => m.team === p.team && m !== p);
+                // öngörü: zeki oyuncu topun gideceği yeri biraz daha iyi tahmin eder
+                const look = 0.12 * (0.8 + 0.5 * p.tr.iq);
+                const predBallX = Math.max(WALL_PAD + 14, Math.min(PITCH_W - WALL_PAD - 14, ball.x + ball.vx * look));
+                const predBallY = Math.max(WALL_PAD + 14, Math.min(PITCH_H - WALL_PAD - 14, ball.y + ball.vy * look));
 
                 let targetX = p.homeX;
                 let targetY = p.homeY;
@@ -1547,9 +1579,26 @@
                         targetY = predBallY;
                         speedFactor = 1.1;
                     } else {
-                        targetX = Math.max(cx - GOAL_WIDTH / 2 + 12, Math.min(cx + GOAL_WIDTH / 2 - 12, predBallX));
-                        targetY = gkHomeY;
+                        let aimX = predBallX;
                         speedFactor = 0.82;
+                        // Kaleye gelen şut: top kale çizgisine nerede varacak? İyi kaleci oraya önceden kayar
+                        const toward = isHome ? ball.vy : -ball.vy;
+                        const dGoal = Math.abs(ownGoalY - ball.y);
+                        if (toward > 110 && ((isHome && ball.y < ownGoalY) || (!isHome && ball.y > ownGoalY))) {
+                            const KD = 0.9068;
+                            const frac = dGoal * KD / toward;
+                            if (frac < 0.97) {
+                                const tHit = -Math.log(1 - frac) / KD;
+                                if (tHit < 1.4) {
+                                    const ix = ball.x + ball.vx * (1 - Math.exp(-KD * tHit)) / KD;
+                                    const w = 0.1 + 0.45 * p.tr.gk;
+                                    aimX = aimX * (1 - w) + ix * w;
+                                    speedFactor = 0.9 + 0.3 * p.tr.gk;
+                                }
+                            }
+                        }
+                        targetX = Math.max(cx - GOAL_WIDTH / 2 + 12, Math.min(cx + GOAL_WIDTH / 2 - 12, aimX));
+                        targetY = gkHomeY;
                     }
                 } else if (p.role === 'Defans') {
                     if (isPrimaryChaser) {
@@ -1732,7 +1781,7 @@
                                 && Math.min(...opps.map(o => Math.hypot(o.x - leadX, o.y - leadY))) > 50;
                             const directOk = laneClear(ball.x, ball.y, m.x, m.y, p.team);
                             if (!throughOk && !directOk) return;
-                            let score = Math.min(oppNear, 100) / 100 + progress / 160 - d / 700 + Math.random() * 0.25;
+                            let score = Math.min(oppNear, 100) / 100 + progress / 160 - d / 700 + Math.random() * (0.4 - 0.3 * p.tr.iq);
                             if (ot && ot.to === p && ot.from === m) score += 1.2;   // duvar pasında geri pas
                             if (throughOk) score += 0.35;
                             cands.push({ m, score, through: throughOk && (!directOk || Math.random() < 0.65), leadX, leadY });
@@ -3017,6 +3066,7 @@
                     pEnt(t, sb.role);
                     const pl = players.find(pp => pp.team === t && pp.role === sb.role);
                     if (pl) {
+                        applyTraits(pl);
                         pl.kickGlow = 0.8;
                         addFloatingText(pl.x, pl.y - 20, '🔄 ' + sb.inName, '#34d399');
                     }
