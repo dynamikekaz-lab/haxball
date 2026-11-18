@@ -3547,15 +3547,29 @@
             return '<div class="rounded-2xl bg-slate-900/90 border border-slate-800 p-5 text-center text-xs text-slate-400">' + msg + '</div>';
         }
 
+        // Sol sıra renkleri (puan tablosu çubukları) — kullanıcı ayarlayabilir
+        const ZONE_COLOR_DEFAULTS = { champ: '#22c55e', ucl: '#3b82f6', euro: '#f97316', releg: '#ef4444' };
+        let zoneColors = Object.assign({}, ZONE_COLOR_DEFAULTS);
+        try {
+            const zc = JSON.parse(localStorage.getItem('haxballZoneColors') || 'null');
+            if (zc && typeof zc === 'object') {
+                ['champ', 'ucl', 'euro', 'releg'].forEach(k => {
+                    if (typeof zc[k] === 'string' && /^#[0-9a-fA-F]{6}$/.test(zc[k])) zoneColors[k] = zc[k];
+                });
+            }
+        } catch (e) {}
+        function saveZoneColors() {
+            try { localStorage.setItem('haxballZoneColors', JSON.stringify(zoneColors)); } catch (e) {}
+        }
         function zoneColor(rank, n) {
-            // rank 0-based. Yeşil: şampiyon, Mavi: ŞL, Turuncu: Avrupa/play-off, Kırmızı: küme düşme
+            // rank 0-based. Şampiyon / ŞL / Avrupa-play-off / küme düşme
             if (n < 2) return null;
-            if (rank === 0) return '#22c55e';
-            if (rank <= 2 && n >= 4) return '#3b82f6';
-            if (rank === 3 && n >= 6) return '#f97316';
+            if (rank === 0) return zoneColors.champ;
+            if (rank <= 2 && n >= 4) return zoneColors.ucl;
+            if (rank === 3 && n >= 6) return zoneColors.euro;
             const relCount = n >= 10 ? 3 : (n >= 6 ? 2 : (n >= 4 ? 1 : 0));
-            if (relCount && rank >= n - relCount) return '#ef4444';
-            if (relCount && n >= 8 && rank === n - relCount - 1) return '#f97316';
+            if (relCount && rank >= n - relCount) return zoneColors.releg;
+            if (relCount && n >= 8 && rank === n - relCount - 1) return zoneColors.euro;
             return null;
         }
         function viewTable(L) {
@@ -3577,12 +3591,30 @@
             });
             h += '</tbody></table></div>';
             h += '<div class="flex flex-wrap gap-3 mt-2 px-1 text-[10px]" style="color:#94a3b8">' +
-                '<span><span style="display:inline-block;width:8px;height:8px;border-radius:2px;background:#22c55e;margin-right:4px"></span>Şampiyon</span>' +
-                '<span><span style="display:inline-block;width:8px;height:8px;border-radius:2px;background:#3b82f6;margin-right:4px"></span>Şampiyonlar Ligi</span>' +
-                '<span><span style="display:inline-block;width:8px;height:8px;border-radius:2px;background:#f97316;margin-right:4px"></span>Avrupa / Play-off</span>' +
-                '<span><span style="display:inline-block;width:8px;height:8px;border-radius:2px;background:#ef4444;margin-right:4px"></span>Küme düşme</span>' +
+                '<span><span style="display:inline-block;width:8px;height:8px;border-radius:2px;background:' + zoneColors.champ + ';margin-right:4px"></span>Şampiyon</span>' +
+                '<span><span style="display:inline-block;width:8px;height:8px;border-radius:2px;background:' + zoneColors.ucl + ';margin-right:4px"></span>Şampiyonlar Ligi</span>' +
+                '<span><span style="display:inline-block;width:8px;height:8px;border-radius:2px;background:' + zoneColors.euro + ';margin-right:4px"></span>Avrupa / Play-off</span>' +
+                '<span><span style="display:inline-block;width:8px;height:8px;border-radius:2px;background:' + zoneColors.releg + ';margin-right:4px"></span>Küme düşme</span>' +
                 '</div>';
-            h += '<div class="text-[10px] mt-1 px-1" style="color:#64748b">O: oynanan, G: galibiyet, B: beraberlik, M: mağlubiyet, AV: averaj, P: puan</div>';
+            h += '<div class="rounded-2xl bg-slate-900/90 border border-slate-800 p-3 mt-3">' +
+                '<div class="text-[11px] font-semibold text-slate-400 mb-2">🎨 Sol sıra renkleri (sen ayarlarsın)</div>' +
+                '<div class="grid grid-cols-2 gap-2 text-[10px]">' +
+                '<label class="flex items-center gap-2 rounded-xl bg-slate-800/80 border border-slate-700 px-2 py-1.5 cursor-pointer">' +
+                '<input type="color" data-zone-key="champ" value="' + zoneColors.champ + '" class="w-6 h-6 rounded cursor-pointer bg-transparent border-0 p-0">' +
+                '<span class="font-bold text-slate-200">Şampiyon</span></label>' +
+                '<label class="flex items-center gap-2 rounded-xl bg-slate-800/80 border border-slate-700 px-2 py-1.5 cursor-pointer">' +
+                '<input type="color" data-zone-key="ucl" value="' + zoneColors.ucl + '" class="w-6 h-6 rounded cursor-pointer bg-transparent border-0 p-0">' +
+                '<span class="font-bold text-slate-200">Şampiyonlar Ligi</span></label>' +
+                '<label class="flex items-center gap-2 rounded-xl bg-slate-800/80 border border-slate-700 px-2 py-1.5 cursor-pointer">' +
+                '<input type="color" data-zone-key="euro" value="' + zoneColors.euro + '" class="w-6 h-6 rounded cursor-pointer bg-transparent border-0 p-0">' +
+                '<span class="font-bold text-slate-200">Avrupa / Play-off</span></label>' +
+                '<label class="flex items-center gap-2 rounded-xl bg-slate-800/80 border border-slate-700 px-2 py-1.5 cursor-pointer">' +
+                '<input type="color" data-zone-key="releg" value="' + zoneColors.releg + '" class="w-6 h-6 rounded cursor-pointer bg-transparent border-0 p-0">' +
+                '<span class="font-bold text-slate-200">Küme düşme</span></label>' +
+                '</div>' +
+                '<button type="button" data-act="resetzones" class="mt-2 w-full py-1.5 rounded-lg bg-slate-800 border border-slate-700 text-[10px] font-bold text-slate-400 hover:text-white cursor-pointer">Varsayılana döndür</button>' +
+                '</div>';
+            h += '<div class="text-[10px] mt-2 px-1" style="color:#64748b">O: oynanan, G: galibiyet, B: beraberlik, M: mağlubiyet, AV: averaj, P: puan</div>';
             return h;
         }
 
@@ -3876,6 +3908,16 @@
         leagueBody.addEventListener('change', e => {
             const sel = e.target.getAttribute && e.target.getAttribute('data-sel');
             if (sel) leagueSel[sel] = e.target.value;
+            const zk = e.target.getAttribute && e.target.getAttribute('data-zone-key');
+            if (zk && zoneColors[zk] !== undefined) {
+                const v = e.target.value;
+                if (/^#[0-9a-fA-F]{6}$/.test(v)) {
+                    zoneColors[zk] = v;
+                    saveZoneColors();
+                    renderLeague();
+                    toast('🎨 Sol renk kaydedildi');
+                }
+            }
         });
 
         leagueBody.addEventListener('click', async e => {
@@ -3889,6 +3931,11 @@
                 const a = L.teams.find(t => t.id === leagueSel.away);
                 if (!h || !a || h.id === a.id) { toast('İki farklı takım seç'); return; }
                 startLeagueMatch(h, a);
+            } else if (act === 'resetzones') {
+                zoneColors = Object.assign({}, ZONE_COLOR_DEFAULTS);
+                saveZoneColors();
+                renderLeague();
+                toast('🎨 Sol renkler varsayılana döndü');
             } else if (act === 'watch') {
                 watchGoal(id, parseInt(el.getAttribute('data-g'), 10));
             } else if (act === 'clearclips') {
