@@ -428,7 +428,7 @@
         </div>
 
         <!-- Alt Canlı Aksiyon Bandı & Kontrol Butonları -->
-        <div class="px-3 pt-1.5 pb-3 bg-slate-900/95 border-t border-slate-800 z-10 shrink-0">
+        <div id="liveBar" class="px-3 pt-1.5 pb-3 bg-slate-900/95 border-t border-slate-800 z-10 shrink-0">
             <div class="h-6 flex items-center justify-center mb-2 px-2 rounded-lg bg-slate-950/90 border border-slate-800/80">
                 <span id="liveTicker" class="text-[11px] font-semibold text-slate-300 truncate">⚽ Hakem düdüğünü çaldı, maç başladı!</span>
             </div>
@@ -446,6 +446,17 @@
                 <button id="setupBtn" type="button" class="py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 active:scale-95 text-xs font-bold text-sky-300 border border-slate-700 transition cursor-pointer">
                     ⚙️ Ayarlar
                 </button>
+            </div>
+        </div>
+        <!-- Kayıtlı gol tekrarı izleme çubuğu -->
+        <div id="viewerBar" class="hidden px-3 pt-1.5 pb-3 bg-slate-900/95 border-t border-slate-800 z-10 shrink-0">
+            <div class="h-6 flex items-center justify-center mb-2 px-2 rounded-lg bg-slate-950/90 border border-slate-800/80">
+                <span id="viewerInfo" class="text-[11px] font-semibold text-slate-300 truncate"></span>
+            </div>
+            <div class="grid grid-cols-3 gap-2">
+                <button id="viewerReplayBtn" type="button" class="py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 active:scale-95 text-xs font-bold text-emerald-300 border border-slate-700 transition cursor-pointer">🔁 Tekrar</button>
+                <button id="viewerSpeedBtn" type="button" class="py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 active:scale-95 text-xs font-bold text-amber-300 border border-slate-700 transition cursor-pointer">🐢 Yavaş</button>
+                <button id="viewerCloseBtn" type="button" class="py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 active:scale-95 text-xs font-bold text-sky-300 border border-slate-700 transition cursor-pointer">✕ Kapat</button>
             </div>
         </div>
     </div>
@@ -2286,6 +2297,11 @@
                 lastF.t += 0.016;
                 matchState.frames.push(lastF);
                 matchState.pendingReplay = matchState.frames.slice();
+                try {
+                    const clip = encodeClip(matchState.pendingReplay);
+                    const sc = matchState.scorers[matchState.scorers.length - 1];
+                    if (clip && sc) sc.clip = clip;
+                } catch (e) {}
             }
             resetPositionsForKickoff(matchState.kickoffTeam);
         }
@@ -2762,27 +2778,84 @@
             setTicker('🎬 Gol tekrarı (yavaş çekim)');
         }
 
-        function stepReplay(dt) {
-            const rp = matchState.replay;
-            rp.t += dt * REPLAY_SPEED;
-            if (rp.t >= rp.end) { endReplay(); return; }
-            const fr = rp.frames;
+        function applyPose(fr, t) {
             let i = 0;
-            while (i < fr.length - 2 && fr[i + 1].t <= rp.t) i++;
+            while (i < fr.length - 2 && fr[i + 1].t <= t) i++;
             const a = fr[i], b = fr[i + 1] || fr[i];
             const span = (b.t - a.t) || 1;
-            const k = Math.max(0, Math.min(1, (rp.t - a.t) / span));
+            const k = Math.max(0, Math.min(1, (t - a.t) / span));
             const L = (u, v) => u + (v - u) * k;
             ball.x = L(a.b[0], b.b[0]);
             ball.y = L(a.b[1], b.b[1]);
             ball.powerShotTimer = a.b[2] ? 1 : 0;
             ball.curveTimer = a.b[3] ? 1 : 0;
             players.forEach((p, idx) => {
+                if (!a.p[idx]) return;
                 p.x = L(a.p[idx][0], b.p[idx][0]);
                 p.y = L(a.p[idx][1], b.p[idx][1]);
                 p.sprintTimer = a.p[idx][2] ? 1 : 0;
                 p.kickGlow = a.p[idx][3] ? 0.5 : 0;
             });
+        }
+
+        // ---- Kayıtlı gol tekrarı: 20 kare/sn, 0.5 px hassasiyet, 16 bit sıkıştırılmış (≈2.4 KB / gol) ----
+        const CLIP_DT = 0.05;
+        function encodeClip(fr) {
+            if (!fr || fr.length < 12) return null;
+            const end = fr[fr.length - 1].t;
+            const start = Math.max(fr[0].t, end - REPLAY_WINDOW);
+            const n = Math.max(2, Math.round((end - start) / CLIP_DT) + 1);
+            const np = fr[0].p.length;
+            const per = 2 + np * 2;
+            const bytes = new Uint8Array(n * per * 2);
+            let o = 0, i = 0;
+            const put = v => { bytes[o++] = v & 255; bytes[o++] = (v >> 8) & 255; };
+            const q = (v, max) => Math.max(0, Math.min(max, Math.round(v * 2)));
+            for (let k = 0; k < n; k++) {
+                const t = Math.min(end, start + k * CLIP_DT);
+                while (i < fr.length - 2 && fr[i + 1].t <= t) i++;
+                const a = fr[i], b = fr[i + 1] || fr[i];
+                const kk = Math.max(0, Math.min(1, (t - a.t) / ((b.t - a.t) || 1)));
+                const L = (u, v) => u + (v - u) * kk;
+                put(q(L(a.b[0], b.b[0]), 2047) | ((a.b[2] ? 1 : 0) << 11) | ((a.b[3] ? 1 : 0) << 12));
+                put(q(L(a.b[1], b.b[1]), 2047));
+                for (let j = 0; j < np; j++) {
+                    put(q(L(a.p[j][0], b.p[j][0]), 2047) | ((a.p[j][2] ? 1 : 0) << 11) | ((a.p[j][3] ? 1 : 0) << 12));
+                    put(q(L(a.p[j][1], b.p[j][1]), 2047));
+                }
+            }
+            let bin = '';
+            for (let j = 0; j < bytes.length; j += 8192) bin += String.fromCharCode.apply(null, bytes.subarray(j, j + 8192));
+            return np + '.' + n + '.' + btoa(bin);
+        }
+        function decodeClip(str) {
+            const m = /^(\d+)\.(\d+)\.([A-Za-z0-9+/=]+)$/.exec(str || '');
+            if (!m) return null;
+            const np = +m[1], n = +m[2];
+            const bin = atob(m[3]);
+            if (np < 1 || np > 16 || n < 2 || bin.length !== n * (2 + np * 2) * 2) return null;
+            let o = 0;
+            const get = () => { const v = bin.charCodeAt(o) | (bin.charCodeAt(o + 1) << 8); o += 2; return v; };
+            const frames = [];
+            for (let k = 0; k < n; k++) {
+                let v = get();
+                const bx = (v & 2047) / 2, bp = (v >> 11) & 1, bc = (v >> 12) & 1;
+                const by = get() / 2;
+                const p = [];
+                for (let j = 0; j < np; j++) {
+                    v = get();
+                    p.push([(v & 2047) / 2, get() / 2, (v >> 11) & 1, (v >> 12) & 1]);
+                }
+                frames.push({ t: k * CLIP_DT, b: [bx, by, bp, bc], p });
+            }
+            return frames;
+        }
+
+        function stepReplay(dt) {
+            const rp = matchState.replay;
+            rp.t += dt * REPLAY_SPEED;
+            if (rp.t >= rp.end) { endReplay(); return; }
+            applyPose(rp.frames, rp.t);
             // top izi
             ball.trail.forEach(t => t.life -= dt * 3.2);
             ball.trail = ball.trail.filter(t => t.life > 0);
@@ -3160,7 +3233,8 @@
                     team: s.team === 'away' ? 'away' : 'home',
                     name: String(s.name || '').slice(0, 10),
                     own: !!s.own,
-                    min: parseInt(s.min, 10) || 0
+                    min: parseInt(s.min, 10) || 0,
+                    clip: (typeof s.clip === 'string' && s.clip.length < 9000 && /^\d+\.\d+\.[A-Za-z0-9+/=]+$/.test(s.clip)) ? s.clip : undefined
                 })),
                 players: (Array.isArray(m.players) ? m.players : []).filter(p => p && p.n).slice(0, 30).map(p => ({
                     t: p.t === 'away' ? 'away' : 'home',
@@ -3197,9 +3271,9 @@
             } catch (e) {}
             return { active: 'l1', leagues: [{ id: 'l1', name: 'Lig 1', teams: [], matches: [] }] };
         }
-        function saveAll(A) {
+        function saveAll(A, quiet) {
             try { localStorage.setItem(LEAGUE_KEY, JSON.stringify(A)); return true; }
-            catch (e) { toast('⚠️ Kaydedilemedi (depolama dolu olabilir)'); return false; }
+            catch (e) { if (!quiet) toast('⚠️ Kaydedilemedi (depolama dolu olabilir)'); return false; }
         }
         function activeLeague(A) { return A.leagues.find(l => l.id === A.active) || A.leagues[0]; }
         function loadLeague() {
@@ -3312,9 +3386,17 @@
                 players: ents.map(e => ({ t: e.team, n: e.name, r: e.role, g: e.g, a: e.a, og: e.og, oa: e.oa, rt: Math.round(e.rating * 10) / 10 })),
                 motm: best ? { t: best.team, n: best.name, r: best.role, rt: Math.round(best.rating * 10) / 10 } : null
             });
-            const ok = saveAll(A);
+            let ok = saveAll(A, true);
+            let clipsDropped = false;
+            if (!ok) {
+                // Depolama doluysa sonucu gol tekrarları olmadan kaydetmeyi dene
+                const last = L.matches[L.matches.length - 1];
+                last.scorers = last.scorers.map(sc => { const c = Object.assign({}, sc); delete c.clip; return c; });
+                ok = saveAll(A);
+                clipsDropped = ok;
+            }
             matchState.recorded = ok;
-            note.textContent = ok ? '🏆 Sonuç lige işlendi' : '⚠️ Sonuç kaydedilemedi';
+            note.textContent = ok ? (clipsDropped ? '🏆 Sonuç işlendi (depolama dolu: gol tekrarları kaydedilemedi)' : '🏆 Sonuç lige işlendi') : '⚠️ Sonuç kaydedilemedi';
             note.classList.remove('hidden');
         }
 
@@ -3388,8 +3470,16 @@
             if (!L.matches.length) return emptyBox('Henüz oynanmış lig maçı yok.');
             const byId = {};
             L.teams.forEach(t => byId[t.id] = t);
-            const lines = (m, side) => m.scorers.filter(s => s.team === side).map(s => esc(s.name) + (s.own ? ' (k.k.)' : '') + ' ' + s.min + "'").join('<br>');
-            let h = '<div class="space-y-2">';
+            const lines = (m, side) => m.scorers.map((s, gi) => ({ s, gi })).filter(x => x.s.team === side).map(({ s, gi }) =>
+                (s.clip ? '<button type="button" data-act="watch" data-id="' + esc(m.id) + '" data-g="' + gi + '" class="mr-1 px-1.5 rounded bg-slate-800 border border-slate-700 text-emerald-300 font-bold cursor-pointer">▶</button>' : '') +
+                esc(s.name) + (s.own ? ' (k.k.)' : '') + ' ' + s.min + "'").join('<br>');
+            let clipCount = 0, clipChars = 0;
+            L.matches.forEach(m => m.scorers.forEach(s => { if (s.clip) { clipCount++; clipChars += s.clip.length; } }));
+            let h = clipCount
+                ? '<div class="flex items-center justify-between gap-2 mb-2 px-1 text-[10px] text-slate-500"><span>🎬 ' + clipCount + ' gol tekrarı · ≈' + Math.max(1, Math.round(clipChars / 1024)) + ' KB</span>' +
+                  '<button type="button" data-act="clearclips" class="font-bold text-slate-400 hover:text-red-400 cursor-pointer">Tekrarları sil</button></div>'
+                : '';
+            h += '<div class="space-y-2">';
             L.matches.slice().reverse().forEach(m => {
                 const a = byId[m.home], b = byId[m.away];
                 if (!a || !b) return;
@@ -3464,6 +3554,117 @@
             document.getElementById('startMatchBtn').click();
         }
 
+        // ---- Kayıtlı gol tekrarını izle ----
+        let viewerRAF = 0;
+        let viewerSnap = null;
+        const loadImg = src => new Promise(res => {
+            if (!src) return res(null);
+            const im = new Image();
+            im.onload = () => res(im);
+            im.onerror = () => res(null);
+            im.src = src;
+        });
+        async function watchGoal(matchId, gi) {
+            const A = loadAll();
+            const L = A.leagues.find(l => l.id === A.active) || A.leagues[0];
+            const m = L.matches.find(x => x.id === matchId);
+            const sc = m && m.scorers[gi];
+            const frames = sc && sc.clip ? decodeClip(sc.clip) : null;
+            if (!frames) { toast('⚠️ Bu golün tekrarı bulunamadı'); return; }
+            const th = L.teams.find(t => t.id === m.home), ta = L.teams.find(t => t.id === m.away);
+            if (!th || !ta) return;
+            const [imgH, imgA] = await Promise.all([loadImg(th.logo), loadImg(ta.logo)]);
+
+            if (!viewerSnap) {
+                viewerSnap = {
+                    cfg: ['home', 'away'].map(k => Object.assign({}, teamConfig[k], { names: Object.assign({}, teamConfig[k].names) })),
+                    ms: { homeScore: matchState.homeScore, awayScore: matchState.awayScore, elapsedReal: matchState.elapsedReal, half: matchState.half, running: matchState.running, ended: matchState.ended, paused: matchState.paused }
+                };
+            }
+            matchState.running = false;
+            if (animFrameId) cancelAnimationFrame(animFrameId);
+            cancelAnimationFrame(viewerRAF);
+
+            [[th, imgH, 'home'], [ta, imgA, 'away']].forEach(([t, img, k]) => {
+                Object.assign(teamConfig[k], { name: t.name, color: t.color, logoDataUrl: t.logo || null, logoImg: img });
+                teamConfig[k].names = Object.assign({}, t.names);
+                teamConfig[k].baseNames = Object.assign({}, t.names);
+                teamConfig[k].subs = [];
+            });
+            let hs = 0, as = 0;
+            m.scorers.forEach((s, i) => { if (i <= gi) { if (s.team === 'home') hs++; else as++; } });
+            matchState.homeScore = hs; matchState.awayScore = as;
+            matchState.elapsedReal = Math.min(1, sc.min / 90) * TOTAL_REAL_SECONDS;
+            matchState.half = sc.min > 45 ? 2 : 1;
+            matchState.paused = false; matchState.ended = false;
+            matchState.replay = null; matchState.pendingReplay = null;
+            matchState.particles = []; matchState.floatingTexts = []; matchState.passIndicator = null;
+            matchState.goalPauseTimer = 0;
+
+            leagueScreen.classList.add('hidden');
+            setupScreen.classList.add('hidden');
+            fullTimeOverlay.classList.add('hidden');
+            document.getElementById('replayBadge').classList.add('hidden');
+            document.getElementById('liveBar').classList.add('hidden');
+            document.getElementById('viewerBar').classList.remove('hidden');
+            matchScreen.classList.remove('hidden');
+            resizeCanvas();
+            createPlayers();
+            ball.trail = []; ball.vx = 0; ball.vy = 0;
+            updateScoreboardUI();
+
+            const scorerTeam = sc.team === 'home' ? th : ta;
+            document.getElementById('viewerInfo').textContent = '🎬 ' + sc.min + "' " + sc.name + (sc.own ? ' (k.k.)' : '') + ' · ' + scorerTeam.name + ' · ' + hs + '-' + as;
+            matchState.viewer = { frames, t: 0, end: frames[frames.length - 1].t, speed: REPLAY_SPEED, playing: true, last: 0, lx: null, ly: null };
+            document.getElementById('viewerSpeedBtn').textContent = '🐢 Yavaş';
+            viewerRAF = requestAnimationFrame(viewerLoop);
+        }
+        function viewerLoop(ts) {
+            const v = matchState.viewer;
+            if (!v) return;
+            if (!v.last) v.last = ts;
+            const dt = Math.min(0.1, (ts - v.last) / 1000);
+            v.last = ts;
+            if (v.playing) {
+                v.t += dt * v.speed;
+                if (v.t >= v.end) { v.t = v.end; v.playing = false; }
+            }
+            applyPose(v.frames, v.t);
+            ball.trail.forEach(t => t.life -= dt * 3.2);
+            ball.trail = ball.trail.filter(t => t.life > 0);
+            if (v.lx !== null && Math.hypot(ball.x - v.lx, ball.y - v.ly) > 3) {
+                ball.trail.push({ x: ball.x, y: ball.y, life: 1.0, curve: ball.curveTimer > 0 });
+            }
+            v.lx = ball.x; v.ly = ball.y;
+            drawPitch();
+            viewerRAF = requestAnimationFrame(viewerLoop);
+        }
+        function closeViewer() {
+            cancelAnimationFrame(viewerRAF);
+            matchState.viewer = null;
+            if (viewerSnap) {
+                ['home', 'away'].forEach((k, i) => Object.assign(teamConfig[k], viewerSnap.cfg[i]));
+                Object.assign(matchState, viewerSnap.ms);
+                viewerSnap = null;
+            }
+            matchState.running = false;
+            document.getElementById('viewerBar').classList.add('hidden');
+            document.getElementById('liveBar').classList.remove('hidden');
+            showLeague('history');
+        }
+        document.getElementById('viewerReplayBtn').addEventListener('click', () => {
+            const v = matchState.viewer;
+            if (!v) return;
+            v.t = 0; v.playing = true; v.lx = null; ball.trail = [];
+        });
+        document.getElementById('viewerSpeedBtn').addEventListener('click', e => {
+            const v = matchState.viewer;
+            if (!v) return;
+            v.speed = v.speed < 1 ? 1 : REPLAY_SPEED;
+            e.currentTarget.textContent = v.speed < 1 ? '🐢 Yavaş' : '⚡ Normal';
+        });
+        document.getElementById('viewerCloseBtn').addEventListener('click', closeViewer);
+
         document.getElementById('openLeagueBtn').addEventListener('click', () => showLeague());
         document.getElementById('leagueSelect').addEventListener('change', e => {
             const A = loadAll();
@@ -3525,6 +3726,14 @@
                 const a = L.teams.find(t => t.id === leagueSel.away);
                 if (!h || !a || h.id === a.id) { toast('İki farklı takım seç'); return; }
                 startLeagueMatch(h, a);
+            } else if (act === 'watch') {
+                watchGoal(id, parseInt(el.getAttribute('data-g'), 10));
+            } else if (act === 'clearclips') {
+                if (confirm('Bu ligdeki tüm kayıtlı gol tekrarları silinsin mi? Maç sonuçları kalır.')) {
+                    L.matches.forEach(m => m.scorers.forEach(sc => { delete sc.clip; }));
+                    saveLeague(L);
+                    renderLeague();
+                }
             } else if (act === 'delmatch') {
                 if (confirm('Bu maç silinsin mi? Puan durumu ve gol krallığı güncellenir.')) {
                     L.matches = L.matches.filter(m => m.id !== id);
