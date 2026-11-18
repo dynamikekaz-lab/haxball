@@ -2766,6 +2766,33 @@
             ctx.strokeStyle = ballEdge;
             ctx.stroke();
 
+            // Görsel futbol topu deseni: yalnızca çizim katmanı; konum, hız ve çarpışmaya etkisi yoktur.
+            ctx.save();
+            ctx.beginPath();
+            ctx.arc(0, 0, BALL_RADIUS - 0.7, 0, Math.PI * 2);
+            ctx.clip();
+            ctx.strokeStyle = ballDot;
+            ctx.fillStyle = ballDot;
+            ctx.lineWidth = 0.9;
+            ctx.lineJoin = 'round';
+            const patternR = BALL_RADIUS * 0.29;
+            ctx.beginPath();
+            for (let k = 0; k < 5; k++) {
+                const a = -Math.PI / 2 + k * Math.PI * 2 / 5;
+                const px = Math.cos(a) * patternR, py = Math.sin(a) * patternR;
+                if (k === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py);
+            }
+            ctx.closePath();
+            ctx.fill();
+            for (let k = 0; k < 5; k++) {
+                const a = -Math.PI / 2 + k * Math.PI * 2 / 5;
+                ctx.beginPath();
+                ctx.moveTo(Math.cos(a) * patternR * 1.15, Math.sin(a) * patternR * 1.15);
+                ctx.lineTo(Math.cos(a) * (BALL_RADIUS - 1), Math.sin(a) * (BALL_RADIUS - 1));
+                ctx.stroke();
+            }
+            ctx.restore();
+
             ctx.fillStyle = ballDot;
             ctx.beginPath();
             ctx.arc(0, 0, 3, 0, Math.PI * 2);
@@ -3547,30 +3574,26 @@
             return '<div class="rounded-2xl bg-slate-900/90 border border-slate-800 p-5 text-center text-xs text-slate-400">' + msg + '</div>';
         }
 
-        // Sol sıra renkleri (puan tablosu çubukları) — kullanıcı ayarlayabilir
-        const ZONE_COLOR_DEFAULTS = { champ: '#22c55e', ucl: '#3b82f6', euro: '#f97316', releg: '#ef4444' };
-        let zoneColors = Object.assign({}, ZONE_COLOR_DEFAULTS);
+        // Kullanıcının kendi puan tablosu kategorileri: ad, sıra aralığı ve isteğe bağlı renk.
+        const ZONE_CONFIG_KEY = 'haxballCustomZones';
+        let customZones = [];
         try {
-            const zc = JSON.parse(localStorage.getItem('haxballZoneColors') || 'null');
-            if (zc && typeof zc === 'object') {
-                ['champ', 'ucl', 'euro', 'releg'].forEach(k => {
-                    if (typeof zc[k] === 'string' && /^#[0-9a-fA-F]{6}$/.test(zc[k])) zoneColors[k] = zc[k];
-                });
-            }
+            const savedZones = JSON.parse(localStorage.getItem(ZONE_CONFIG_KEY) || '[]');
+            if (Array.isArray(savedZones)) customZones = savedZones.filter(z =>
+                z && typeof z.id === 'string' && typeof z.name === 'string' &&
+                Number.isFinite(Number(z.from)) && Number.isFinite(Number(z.to))
+            ).map(z => ({
+                id: z.id, name: z.name, from: Math.max(1, Number(z.from)),
+                to: Math.max(1, Number(z.to)),
+                color: /^#[0-9a-fA-F]{6}$/.test(z.color || '') ? z.color : null
+            }));
         } catch (e) {}
-        function saveZoneColors() {
-            try { localStorage.setItem('haxballZoneColors', JSON.stringify(zoneColors)); } catch (e) {}
+        function saveCustomZones() {
+            try { localStorage.setItem(ZONE_CONFIG_KEY, JSON.stringify(customZones)); } catch (e) {}
         }
-        function zoneColor(rank, n) {
-            // rank 0-based. Şampiyon / ŞL / Avrupa-play-off / küme düşme
-            if (n < 2) return null;
-            if (rank === 0) return zoneColors.champ;
-            if (rank <= 2 && n >= 4) return zoneColors.ucl;
-            if (rank === 3 && n >= 6) return zoneColors.euro;
-            const relCount = n >= 10 ? 3 : (n >= 6 ? 2 : (n >= 4 ? 1 : 0));
-            if (relCount && rank >= n - relCount) return zoneColors.releg;
-            if (relCount && n >= 8 && rank === n - relCount - 1) return zoneColors.euro;
-            return null;
+        function zoneForRank(rank) {
+            const position = rank + 1;
+            return customZones.find(z => position >= Math.min(z.from, z.to) && position <= Math.max(z.from, z.to));
         }
         function viewTable(L) {
             if (!L.teams.length) return emptyBox('Henüz takım yok. Ayarlar ekranında takımını hazırla ve <b class="text-emerald-400">💾 Lige Kaydet</b>\'e bas.');
@@ -3579,9 +3602,9 @@
             let h = '<div class="rounded-2xl bg-slate-900/90 border border-slate-800 overflow-hidden"><table class="w-full text-[11px]"><thead><tr class="text-slate-300 bg-slate-950/60"><th class="py-2 pl-2 text-left w-6">#</th><th class="text-left">Takım</th><th class="text-slate-200">O</th><th class="text-slate-200">G</th><th class="text-slate-200">B</th><th class="text-slate-200">M</th><th class="text-slate-200">AV</th><th class="pr-2 text-emerald-400">P</th></tr></thead><tbody>';
             rows.forEach((r, i) => {
                 const av = r.gf - r.ga;
-                const zc = zoneColor(i, n);
-                const bar = zc
-                    ? '<span style="display:inline-block;width:4px;height:18px;border-radius:2px;background:' + zc + ';margin-right:6px;vertical-align:middle;flex-shrink:0"></span>'
+                const zone = zoneForRank(i);
+                const bar = zone && zone.color
+                    ? '<span style="display:inline-block;width:4px;height:18px;border-radius:2px;background:' + zone.color + ';margin-right:6px;vertical-align:middle;flex-shrink:0"></span>'
                     : '<span style="display:inline-block;width:4px;height:18px;margin-right:6px;flex-shrink:0"></span>';
                 h += '<tr class="border-t border-slate-800 text-center" style="color:#e2e8f0">' +
                     '<td class="py-2 pl-2 text-left font-bold" style="color:#cbd5e1">' + bar + (i + 1) + '</td>' +
@@ -3590,30 +3613,24 @@
                     '<td class="pr-2 font-black" style="color:#34d399">' + r.pts + '</td></tr>';
             });
             h += '</tbody></table></div>';
-            h += '<div class="flex flex-wrap gap-3 mt-2 px-1 text-[10px]" style="color:#94a3b8">' +
-                '<span><span style="display:inline-block;width:8px;height:8px;border-radius:2px;background:' + zoneColors.champ + ';margin-right:4px"></span>Şampiyon</span>' +
-                '<span><span style="display:inline-block;width:8px;height:8px;border-radius:2px;background:' + zoneColors.ucl + ';margin-right:4px"></span>Şampiyonlar Ligi</span>' +
-                '<span><span style="display:inline-block;width:8px;height:8px;border-radius:2px;background:' + zoneColors.euro + ';margin-right:4px"></span>Avrupa / Play-off</span>' +
-                '<span><span style="display:inline-block;width:8px;height:8px;border-radius:2px;background:' + zoneColors.releg + ';margin-right:4px"></span>Küme düşme</span>' +
-                '</div>';
             h += '<div class="rounded-2xl bg-slate-900/90 border border-slate-800 p-3 mt-3">' +
-                '<div class="text-[11px] font-semibold text-slate-400 mb-2">🎨 Sol sıra renkleri (sen ayarlarsın)</div>' +
-                '<div class="grid grid-cols-2 gap-2 text-[10px]">' +
-                '<label class="flex items-center gap-2 rounded-xl bg-slate-800/80 border border-slate-700 px-2 py-1.5 cursor-pointer">' +
-                '<input type="color" data-zone-key="champ" value="' + zoneColors.champ + '" class="w-6 h-6 rounded cursor-pointer bg-transparent border-0 p-0">' +
-                '<span class="font-bold text-slate-200">Şampiyon</span></label>' +
-                '<label class="flex items-center gap-2 rounded-xl bg-slate-800/80 border border-slate-700 px-2 py-1.5 cursor-pointer">' +
-                '<input type="color" data-zone-key="ucl" value="' + zoneColors.ucl + '" class="w-6 h-6 rounded cursor-pointer bg-transparent border-0 p-0">' +
-                '<span class="font-bold text-slate-200">Şampiyonlar Ligi</span></label>' +
-                '<label class="flex items-center gap-2 rounded-xl bg-slate-800/80 border border-slate-700 px-2 py-1.5 cursor-pointer">' +
-                '<input type="color" data-zone-key="euro" value="' + zoneColors.euro + '" class="w-6 h-6 rounded cursor-pointer bg-transparent border-0 p-0">' +
-                '<span class="font-bold text-slate-200">Avrupa / Play-off</span></label>' +
-                '<label class="flex items-center gap-2 rounded-xl bg-slate-800/80 border border-slate-700 px-2 py-1.5 cursor-pointer">' +
-                '<input type="color" data-zone-key="releg" value="' + zoneColors.releg + '" class="w-6 h-6 rounded cursor-pointer bg-transparent border-0 p-0">' +
-                '<span class="font-bold text-slate-200">Küme düşme</span></label>' +
-                '</div>' +
-                '<button type="button" data-act="resetzones" class="mt-2 w-full py-1.5 rounded-lg bg-slate-800 border border-slate-700 text-[10px] font-bold text-slate-400 hover:text-white cursor-pointer">Varsayılana döndür</button>' +
-                '</div>';
+                '<div class="flex items-center justify-between gap-2 mb-2"><div class="text-[11px] font-semibold text-slate-200">🎨 Özel sıra kategorileri</div>' +
+                '<button type="button" data-act="addzone" class="px-2.5 py-1.5 rounded-lg bg-emerald-500/15 border border-emerald-500/40 text-[10px] font-bold text-emerald-300">＋ Kategori ekle</button></div>' +
+                '<div class="text-[10px] text-slate-500 mb-2">İsimleri ve sıraları sen belirle. Renk seçmek zorunda değilsin; renk kullan seçeneğini kapatabilirsin.</div>';
+            if (!customZones.length) {
+                h += '<div class="text-[10px] text-slate-500 rounded-lg bg-slate-800/50 p-2">Henüz kategori yok. İstersen ekleyip adını, sıra aralığını ve rengini belirleyebilirsin.</div>';
+            }
+            customZones.forEach(z => {
+                h += '<div class="rounded-xl bg-slate-800/70 border border-slate-700 p-2 mb-2 space-y-2">' +
+                    '<div class="flex items-center gap-2"><input type="text" maxlength="28" data-zone-id="' + esc(z.id) + '" data-zone-field="name" value="' + esc(z.name) + '" placeholder="Kategori adı" class="min-w-0 flex-1 px-2 py-1.5 rounded-lg bg-slate-950 border border-slate-700 text-xs font-bold text-white">' +
+                    '<button type="button" data-act="delzone" data-id="' + esc(z.id) + '" class="px-2 py-1.5 rounded-lg bg-red-500/10 text-red-300 text-xs font-bold">Sil</button></div>' +
+                    '<div class="grid grid-cols-2 gap-2"><label class="text-[10px] text-slate-400">Başlangıç sırası<input type="number" min="1" max="' + Math.max(1,n) + '" data-zone-id="' + esc(z.id) + '" data-zone-field="from" value="' + z.from + '" class="mt-1 w-full px-2 py-1.5 rounded-lg bg-slate-950 border border-slate-700 text-xs text-white"></label>' +
+                    '<label class="text-[10px] text-slate-400">Bitiş sırası<input type="number" min="1" max="' + Math.max(1,n) + '" data-zone-id="' + esc(z.id) + '" data-zone-field="to" value="' + z.to + '" class="mt-1 w-full px-2 py-1.5 rounded-lg bg-slate-950 border border-slate-700 text-xs text-white"></label></div>' +
+                    '<div class="flex items-center justify-between gap-2"><label class="flex items-center gap-2 text-[10px] text-slate-300"><input type="checkbox" data-zone-id="' + esc(z.id) + '" data-zone-field="hasColor" ' + (z.color ? 'checked' : '') + '> Renk kullan</label>' +
+                    (z.color ? '<input type="color" data-zone-id="' + esc(z.id) + '" data-zone-field="color" value="' + z.color + '" class="w-8 h-8 rounded cursor-pointer bg-transparent border-0">' : '<span class="text-[10px] text-slate-500">Renksiz</span>') +
+                    '</div></div>';
+            });
+            h += '</div>';
             h += '<div class="text-[10px] mt-2 px-1" style="color:#64748b">O: oynanan, G: galibiyet, B: beraberlik, M: mağlubiyet, AV: averaj, P: puan</div>';
             return h;
         }
@@ -3908,14 +3925,17 @@
         leagueBody.addEventListener('change', e => {
             const sel = e.target.getAttribute && e.target.getAttribute('data-sel');
             if (sel) leagueSel[sel] = e.target.value;
-            const zk = e.target.getAttribute && e.target.getAttribute('data-zone-key');
-            if (zk && zoneColors[zk] !== undefined) {
-                const v = e.target.value;
-                if (/^#[0-9a-fA-F]{6}$/.test(v)) {
-                    zoneColors[zk] = v;
-                    saveZoneColors();
+            const zoneId = e.target.getAttribute && e.target.getAttribute('data-zone-id');
+            const zoneField = e.target.getAttribute && e.target.getAttribute('data-zone-field');
+            if (zoneId && zoneField) {
+                const zone = customZones.find(z => z.id === zoneId);
+                if (zone) {
+                    if (zoneField === 'hasColor') zone.color = e.target.checked ? '#22c55e' : null;
+                    else if (zoneField === 'color' && /^#[0-9a-fA-F]{6}$/.test(e.target.value)) zone.color = e.target.value;
+                    else if (zoneField === 'name') zone.name = e.target.value.trim() || 'İsimsiz kategori';
+                    else if (zoneField === 'from' || zoneField === 'to') zone[zoneField] = Math.max(1, parseInt(e.target.value, 10) || 1);
+                    saveCustomZones();
                     renderLeague();
-                    toast('🎨 Sol renk kaydedildi');
                 }
             }
         });
@@ -3931,11 +3951,14 @@
                 const a = L.teams.find(t => t.id === leagueSel.away);
                 if (!h || !a || h.id === a.id) { toast('İki farklı takım seç'); return; }
                 startLeagueMatch(h, a);
-            } else if (act === 'resetzones') {
-                zoneColors = Object.assign({}, ZONE_COLOR_DEFAULTS);
-                saveZoneColors();
+            } else if (act === 'addzone') {
+                customZones.push({ id: uid(), name: 'Yeni kategori', from: 1, to: 1, color: null });
+                saveCustomZones();
                 renderLeague();
-                toast('🎨 Sol renkler varsayılana döndü');
+            } else if (act === 'delzone') {
+                customZones = customZones.filter(z => z.id !== id);
+                saveCustomZones();
+                renderLeague();
             } else if (act === 'watch') {
                 watchGoal(id, parseInt(el.getAttribute('data-g'), 10));
             } else if (act === 'clearclips') {
