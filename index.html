@@ -3891,7 +3891,7 @@
                 return true;
             } catch (e) { toast('⚠️ Turnuva kaydedilemedi (depolama dolu)'); return false; }
         }
-        function roundName(n) { return n === 1 ? '🏆 Final' : n === 2 ? 'Yarı Final' : n === 4 ? 'Çeyrek Final' : n === 8 ? 'Son 16' : n + ' maç'; }
+        function roundName(n) { return n === 1 ? '🏆 Final' : n === 2 ? 'Yarı Final' : n === 4 ? 'Çeyrek Final' : n === 8 ? 'Son 16' : n === 16 ? 'Son 32' : n === 32 ? 'Son 64' : n + ' maç'; }
         function cupSettle(round) {
             // Bay geçenleri otomatik ilerlet
             round.forEach(m => { if (!m.done && (!m.a || !m.b)) { m.w = m.a || m.b; m.done = true; m.bye = true; } });
@@ -3916,7 +3916,7 @@
                     ids.push(id);
                 }
             }));
-            if (ids.length < 2 || ids.length > 16) { toast('2 ile 16 arası takım seç'); return; }
+            if (ids.length < 2 || ids.length > 64) { toast('2 ile 64 arası takım seç'); return; }
             for (let i = ids.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [ids[i], ids[j]] = [ids[j], ids[i]]; }
             let size = 2; while (size < ids.length) size *= 2;
             const byes = size - ids.length;
@@ -3936,7 +3936,7 @@
                 const A = loadAll();
                 let h = '<div class="rounded-2xl bg-slate-900/90 border border-slate-800 p-3 space-y-2">' +
                     '<div class="text-[11px] font-semibold text-slate-300">🏆 Yeni Turnuva (eleme usulü)</div>' +
-                    '<div class="text-[10px] text-slate-500">Her ligden istediğin kadar takım seç (2-16). Takım sayısı 2’nin kuvveti değilse bazı takımlar ilk turu bay geçer. Beraberlikte seri penaltılarla kazanan belirlenir.</div>';
+                    '<div class="text-[10px] text-slate-500">Her ligden istediğin kadar takım seç (2-64). Takım sayısı 2’nin kuvveti değilse bazı takımlar ilk turu bay geçer. Beraberlikte seri penaltılarla kazanan belirlenir.</div>';
                 let any = false;
                 A.leagues.forEach(l => {
                     if (!l.teams.length) return;
