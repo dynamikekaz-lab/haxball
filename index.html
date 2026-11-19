@@ -453,8 +453,8 @@
                 <button id="pauseBtn" type="button" class="py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 active:scale-95 text-xs font-bold text-white border border-slate-700 transition cursor-pointer">
                     ⏸️ Duraklat
                 </button>
-                <button id="restartBtn" type="button" class="py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 active:scale-95 text-xs font-bold text-amber-300 border border-slate-700 transition cursor-pointer">
-                    🔄 Yeniden
+                <button id="benchBtn" type="button" class="py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 active:scale-95 text-xs font-bold text-amber-300 border border-slate-700 transition cursor-pointer">
+                    🪑 Yedekler
                 </button>
                 <button id="themeBtn" type="button" class="py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 active:scale-95 text-xs font-bold text-emerald-300 border border-slate-700 transition cursor-pointer">
                     🎨 Tema
@@ -462,6 +462,28 @@
                 <button id="setupBtn" type="button" class="py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 active:scale-95 text-xs font-bold text-sky-300 border border-slate-700 transition cursor-pointer">
                     ⚙️ Ayarlar
                 </button>
+            </div>
+        </div>
+        <!-- Maç içi yedek oyuncu değiştirme penceresi -->
+        <div id="benchModal" class="hidden absolute inset-0 z-40 bg-slate-950/85 backdrop-blur-sm flex items-center justify-center p-4">
+            <div class="w-full max-w-sm rounded-2xl border border-slate-700 bg-slate-900 p-4 shadow-2xl">
+                <div class="flex items-center justify-between mb-3">
+                    <h3 class="text-base font-black text-white">🪑 Yedek Kulübesi</h3>
+                    <button id="benchCloseBtn" type="button" class="text-slate-400 hover:text-white text-xl font-bold">✕</button>
+                </div>
+                <label class="block text-[11px] font-bold text-slate-400 mb-1">Takım</label>
+                <select id="benchTeamSelect" class="w-full mb-3 px-3 py-2 rounded-xl bg-slate-800 border border-slate-700 text-sm font-bold text-white">
+                    <option value="home">Ev Sahibi</option><option value="away">Deplasman</option>
+                </select>
+                <label class="block text-[11px] font-bold text-slate-400 mb-1">Çıkacak oyuncu</label>
+                <select id="benchRoleSelect" class="w-full mb-3 px-3 py-2 rounded-xl bg-slate-800 border border-slate-700 text-sm font-bold text-white"></select>
+                <label class="block text-[11px] font-bold text-slate-400 mb-1">Kulübeden girecek oyuncu</label>
+                <select id="benchPlayerSelect" class="w-full mb-3 px-3 py-2 rounded-xl bg-slate-800 border border-slate-700 text-sm font-bold text-white"></select>
+                <div id="benchModalInfo" class="text-[10px] text-slate-400 mb-3"></div>
+                <div class="grid grid-cols-2 gap-2">
+                    <button id="benchCancelBtn" type="button" class="py-2.5 rounded-xl bg-slate-800 border border-slate-700 text-xs font-bold text-slate-200">Vazgeç</button>
+                    <button id="benchConfirmBtn" type="button" class="py-2.5 rounded-xl bg-emerald-500 text-xs font-black text-slate-950">🔄 Oyuncu Değiştir</button>
+                </div>
             </div>
         </div>
         <!-- Kayıtlı gol tekrarı izleme çubuğu -->
@@ -3217,6 +3239,7 @@
             ['home', 'away'].forEach(t => {
                 const cfg = teamConfig[t];
                 if (cfg.baseNames) cfg.names = Object.assign({}, cfg.baseNames);
+                if (cfg.baseBench) cfg.bench = cfg.baseBench.slice();
                 (cfg.subs || []).forEach(sb => sb.done = false);
                 ['Kaleci', 'Defans', 'Orta Saha', 'Forvet'].forEach(r => pEnt(t, r));
             });
@@ -3280,6 +3303,8 @@
             });
             ['home', 'away'].forEach(t => {
                 teamConfig[t].baseNames = Object.assign({}, teamConfig[t].names);
+                teamConfig[t].baseBench = parseBench(document.getElementById(t + 'Bench').value);
+                teamConfig[t].bench = teamConfig[t].baseBench.slice();
                 teamConfig[t].subs = collectSubs(t);
             });
 
@@ -3317,23 +3342,68 @@
             setTicker(matchState.paused ? '⏸️ Maç duraklatıldı.' : '▶️ Maç devam ediyor.');
         });
 
-        document.getElementById('restartBtn').addEventListener('click', () => {
-            matchState.elapsedReal = 0;
-            matchState.half = 1;
-            matchState.homeScore = 0;
-            matchState.awayScore = 0;
-            matchState.stats = { homePossFrames: 1, awayPossFrames: 1, homeShots: 0, awayShots: 0, homePasses: 0, awayPasses: 0 };
-            matchState.ended = false;
-            matchState.paused = false;
-            fullTimeOverlay.classList.add('hidden');
-            document.getElementById('pauseBtn').textContent = '⏸️ Duraklat';
+        const benchModal = document.getElementById('benchModal');
+        const benchTeamSelect = document.getElementById('benchTeamSelect');
+        const benchRoleSelect = document.getElementById('benchRoleSelect');
+        const benchPlayerSelect = document.getElementById('benchPlayerSelect');
+        const benchModalInfo = document.getElementById('benchModalInfo');
 
-            resetSubs();
-            createPlayers();
-            resetPositionsForKickoff('home');
-            updateScoreboardUI();
+        function refreshBenchModal() {
+            const team = benchTeamSelect.value;
+            const cfg = teamConfig[team];
+            const roles = ['Kaleci', 'Defans', 'Orta Saha', 'Forvet'];
+            benchRoleSelect.innerHTML = roles.map(role => {
+                const current = (cfg.names && cfg.names[role]) || role;
+                return '<option value="' + esc(role) + '">' + esc(role) + ' — ' + esc(current) + '</option>';
+            }).join('');
+            const reserves = cfg.bench || [];
+            benchPlayerSelect.innerHTML = reserves.map((name, i) => '<option value="' + i + '">' + esc(name) + '</option>').join('');
+            const hasReserves = reserves.length > 0;
+            benchPlayerSelect.disabled = !hasReserves;
+            document.getElementById('benchConfirmBtn').disabled = !hasReserves;
+            document.getElementById('benchConfirmBtn').classList.toggle('opacity-40', !hasReserves);
+            benchModalInfo.textContent = hasReserves
+                ? 'Kulübede ' + reserves.length + ' oyuncu var. Değişiklik anında uygulanır.'
+                : 'Bu takımın kulübesinde yedek oyuncu kalmadı.';
+        }
+
+        function closeBenchModal() { benchModal.classList.add('hidden'); }
+        document.getElementById('benchBtn').addEventListener('click', () => {
+            if (matchState.ended) { toast('Maç sona erdi.'); return; }
+            refreshBenchModal();
+            benchModal.classList.remove('hidden');
+        });
+        document.getElementById('benchCloseBtn').addEventListener('click', closeBenchModal);
+        document.getElementById('benchCancelBtn').addEventListener('click', closeBenchModal);
+        benchTeamSelect.addEventListener('change', refreshBenchModal);
+
+        document.getElementById('benchConfirmBtn').addEventListener('click', () => {
+            if (matchState.ended) return;
+            const team = benchTeamSelect.value;
+            const role = benchRoleSelect.value;
+            const cfg = teamConfig[team];
+            const index = parseInt(benchPlayerSelect.value, 10);
+            if (!cfg || !Array.isArray(cfg.bench) || !Number.isInteger(index) || !cfg.bench[index]) {
+                toast('Bu takımda kullanılabilir yedek yok.');
+                refreshBenchModal();
+                return;
+            }
+            const incoming = cfg.bench.splice(index, 1)[0];
+            const outgoing = (cfg.names && cfg.names[role]) || role;
+            cfg.names[role] = incoming;
+            const player = players.find(p => p.team === team && p.role === role);
+            if (player) {
+                applyTraits(player);
+                player.kickGlow = 0.8;
+                addFloatingText(player.x, player.y - 20, '🔄 ' + incoming, '#34d399');
+            }
+            pEnt(team, role);
+            const minute = Math.max(0, Math.floor((matchState.elapsedReal / TOTAL_REAL_SECONDS) * 90));
+            showSubToast(team, minute, outgoing, incoming);
+            setTicker('🔄 ' + cfg.name + ': ' + outgoing + ' çıktı, ' + incoming + ' oyuna girdi.');
             sfx.playWhistle(false);
-            setTicker('🔄 Maç baştan başlatıldı!');
+            refreshBenchModal();
+            if (!cfg.bench.length) closeBenchModal();
         });
 
         document.getElementById('setupBtn').addEventListener('click', () => {
