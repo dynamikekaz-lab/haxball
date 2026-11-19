@@ -3881,7 +3881,7 @@
         function loadCup() {
             try {
                 const c = JSON.parse(localStorage.getItem(CUP_KEY) || 'null');
-                if (c && Array.isArray(c.rounds) && c.teams) return c;
+                if (c && Array.isArray(c.rounds) && c.rounds.length && c.teams) { cupFill(c); return c; }
             } catch (e) {}
             return null;
         }
@@ -3892,19 +3892,16 @@
             } catch (e) { toast('⚠️ Turnuva kaydedilemedi (depolama dolu)'); return false; }
         }
         function roundName(n) { return n === 1 ? '🏆 Final' : n === 2 ? 'Yarı Final' : n === 4 ? 'Çeyrek Final' : n === 8 ? 'Son 16' : n === 16 ? 'Son 32' : n === 32 ? 'Son 64' : n + ' maç'; }
-        function cupSettle(round) {
-            // Bay geçenleri otomatik ilerlet
-            round.forEach(m => { if (!m.done && (!m.a || !m.b)) { m.w = m.a || m.b; m.done = true; m.bye = true; } });
-        }
-        function cupAdvance(c) {
-            const last = c.rounds[c.rounds.length - 1];
-            if (!last.every(m => m.done)) return;
-            if (last.length === 1) { c.champion = last[0].w; return; }
-            const next = [];
-            for (let i = 0; i < last.length; i += 2) next.push({ a: last[i].w, b: last[i + 1].w, done: false });
-            cupSettle(next);
-            c.rounds.push(next);
-            cupAdvance(c);
+        // Tüm turları önceden kur, bitmiş maçların galiplerini sonraki tura yerleştir (idempotent)
+        function cupFill(c) {
+            for (let r = 0; c.rounds[r].length > 1; r++) {
+                if (!c.rounds[r + 1]) c.rounds[r + 1] = Array.from({ length: c.rounds[r].length / 2 }, () => ({ a: null, b: null, done: false }));
+            }
+            c.rounds.forEach((rd, r) => rd.forEach((m, i) => {
+                if (m.done && m.w && c.rounds[r + 1]) c.rounds[r + 1][i >> 1][i % 2 ? 'b' : 'a'] = m.w;
+            }));
+            const fin = c.rounds[c.rounds.length - 1][0];
+            c.champion = fin.done ? fin.w : null;
         }
         function startCup() {
             const A = loadAll();
@@ -3926,8 +3923,8 @@
             while (k < ids.length) { pairs.push({ a: ids[k], b: ids[k + 1], done: false }); k += 2; }
             for (let i = pairs.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [pairs[i], pairs[j]] = [pairs[j], pairs[i]]; }
             const c = { id: uid(), teams, rounds: [pairs], champion: null };
-            cupSettle(pairs);
-            cupAdvance(c);
+            pairs.forEach(m => { if (!m.b) { m.w = m.a; m.done = true; m.bye = true; } });
+            cupFill(c);
             if (saveCup(c)) { cupPick.clear(); renderLeague(); }
         }
         function viewCup() {
@@ -3962,17 +3959,26 @@
             }
             c.rounds.forEach((r, ri) => {
                 h += '<div><div class="text-[11px] font-extrabold uppercase tracking-wider text-slate-400 mb-1.5 px-1">' + roundName(r.length) + '</div><div class="space-y-1.5">';
+                const byeNames = r.filter(m => m.bye).map(m => c.teams[m.w] && c.teams[m.w].name).filter(Boolean);
+                if (byeNames.length) h += '<div class="text-[10px] text-slate-500 px-1">Bay geçenler (sonraki tura direkt çıktı): ' + byeNames.map(esc).join(', ') + '</div>';
                 r.forEach((m, mi) => {
+                    if (m.bye) return;
                     const a = c.teams[m.a], b = c.teams[m.b];
-                    const nm = (t, id) => t ? '<span class="text-xs font-bold truncate ' + (m.done && m.w === id ? 'text-emerald-300' : 'text-white') + '">' + esc(t.name) + '</span>' : '<span class="text-xs text-slate-500">—</span>';
+                    const src = (side) => {
+                        const sm = ri > 0 && c.rounds[ri - 1][mi * 2 + side];
+                        if (!sm) return '<span class="text-xs text-slate-500">Galip</span>';
+                        const n = id => (c.teams[id] && c.teams[id].name) || '?';
+                        return '<span class="text-[10px] text-slate-400 leading-tight truncate">Galip: ' + esc(n(sm.a)) + ' – ' + esc(n(sm.b)) + '</span>';
+                    };
+                    const nm = (t, id, side) => t ? '<span class="text-xs font-bold truncate ' + (m.done && m.w === id ? 'text-emerald-300' : 'text-white') + '">' + esc(t.name) + '</span>' : src(side);
                     h += '<div class="rounded-xl bg-slate-900/90 border border-slate-800 px-3 py-2 flex items-center gap-2">' +
-                        '<div class="flex items-center gap-1.5 flex-1 min-w-0">' + (a ? teamBadge(a, 20) : '') + nm(a, m.a) + '</div>' +
+                        '<div class="flex items-center gap-1.5 flex-1 min-w-0">' + (a ? teamBadge(a, 20) : '') + nm(a, m.a, 0) + '</div>' +
                         '<div class="text-center shrink-0 min-w-[60px]">' +
                         (m.bye ? '<span class="text-[10px] text-slate-500">bay</span>'
                             : m.done ? '<div class="text-sm font-black text-white">' + m.ga + ' - ' + m.gb + '</div>' + (m.pen ? '<div class="text-[9px] text-slate-400">pen. ' + m.pen[0] + '-' + m.pen[1] + '</div>' : '')
-                            : (a && b ? '<button type="button" data-act="cupplay" data-r="' + ri + '" data-m="' + mi + '" class="px-2 py-1 rounded-lg bg-emerald-500 text-slate-950 text-[11px] font-black cursor-pointer">▶ Oyna</button>' : '<span class="text-[10px] text-slate-500">bekliyor</span>')) +
+                            : (a && b ? '<button type="button" data-act="cupplay" data-r="' + ri + '" data-m="' + mi + '" class="px-2 py-1 rounded-lg bg-emerald-500 text-slate-950 text-[11px] font-black cursor-pointer">▶ Oyna</button>' : '<span class="text-[10px] text-slate-500">rakip bekleniyor</span>')) +
                         '</div>' +
-                        '<div class="flex items-center justify-end gap-1.5 flex-1 min-w-0">' + nm(b, m.b) + (b ? teamBadge(b, 20) : '') + '</div></div>';
+                        '<div class="flex items-center justify-end gap-1.5 flex-1 min-w-0">' + nm(b, m.b, 1) + (b ? teamBadge(b, 20) : '') + '</div></div>';
                 });
                 h += '</div></div>';
             });
@@ -3997,7 +4003,7 @@
             } else m.w = m.ga > m.gb ? m.a : m.b;
             m.done = true;
             m.scorers = matchState.scorers.map(x => ({ team: x.team, name: x.name, own: !!x.own, min: x.min }));
-            cupAdvance(c);
+            cupFill(c);
             if (c.champion) txt += ' · 🏆 Şampiyon: ' + c.teams[c.champion].name;
             matchState.recorded = saveCup(c);
             note.textContent = matchState.recorded ? txt : '⚠️ Sonuç kaydedilemedi';
