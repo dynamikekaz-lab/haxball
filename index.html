@@ -3878,6 +3878,7 @@
         // ---- Turnuva (eleme usulü): seçilen takımlar herhangi liglerden gelebilir ----
         const CUP_KEY = 'haxballTournament';
         const cupPick = new Set();
+        let cupAll = true;
         function loadCup() {
             try {
                 const c = JSON.parse(localStorage.getItem(CUP_KEY) || 'null');
@@ -3891,15 +3892,25 @@
                 return true;
             } catch (e) { toast('⚠️ Turnuva kaydedilemedi (depolama dolu)'); return false; }
         }
-        function roundName(n) { return n === 1 ? '🏆 Final' : n === 2 ? 'Yarı Final' : n === 4 ? 'Çeyrek Final' : n === 8 ? 'Son 16' : n === 16 ? 'Son 32' : n === 32 ? 'Son 64' : n + ' maç'; }
+        function roundName(n, ri) {
+            if ((n & (n - 1)) === 0) return n === 1 ? '🏆 Final' : n === 2 ? 'Yarı Final' : n === 4 ? 'Çeyrek Final' : 'Son ' + n * 2;
+            return (ri + 1) + '. Tur';
+        }
         // Tüm turları önceden kur, bitmiş maçların galiplerini sonraki tura yerleştir (idempotent)
         function cupFill(c) {
             for (let r = 0; c.rounds[r].length > 1; r++) {
-                if (!c.rounds[r + 1]) c.rounds[r + 1] = Array.from({ length: c.rounds[r].length / 2 }, () => ({ a: null, b: null, done: false }));
+                if (!c.rounds[r + 1]) c.rounds[r + 1] = Array.from({ length: Math.ceil(c.rounds[r].length / 2) }, () => ({ a: null, b: null, done: false }));
             }
-            c.rounds.forEach((rd, r) => rd.forEach((m, i) => {
-                if (m.done && m.w && c.rounds[r + 1]) c.rounds[r + 1][i >> 1][i % 2 ? 'b' : 'a'] = m.w;
-            }));
+            c.rounds.forEach((rd, r) => {
+                const nx = c.rounds[r + 1];
+                if (!nx) return;
+                rd.forEach((m, i) => { if (m.done && m.w) nx[i >> 1][i % 2 ? 'b' : 'a'] = m.w; });
+                // Tek sayıda maç varsa son maçın galibi rakipsiz kalır: bay geçer
+                if (rd.length % 2 === 1) {
+                    const last = rd[rd.length - 1], solo = nx[nx.length - 1];
+                    if (last.done && last.w && !solo.done) { solo.w = last.w; solo.done = true; solo.bye = true; }
+                }
+            });
             const fin = c.rounds[c.rounds.length - 1][0];
             c.champion = fin.done ? fin.w : null;
         }
@@ -3916,6 +3927,7 @@
             if (ids.length < 2 || ids.length > 64) { toast('2 ile 64 arası takım seç'); return; }
             for (let i = ids.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [ids[i], ids[j]] = [ids[j], ids[i]]; }
             let size = 2; while (size < ids.length) size *= 2;
+            if (cupAll) size = ids.length + (ids.length % 2); // herkes ilk turda oynar (tek sayıdaysa 1 bay)
             const byes = size - ids.length;
             const pairs = [];
             let k = 0;
@@ -3946,7 +3958,8 @@
                     });
                 });
                 if (!any) return emptyBox('Önce liglere takım kaydet.');
-                h += '<div class="text-[11px] text-slate-400">Seçilen: <b class="text-white">' + cupPick.size + '</b></div>' +
+                h += '<label class="flex items-start gap-2 text-[10px] text-slate-300 cursor-pointer"><input type="checkbox" data-cup-all' + (cupAll ? ' checked' : '') + ' class="mt-0.5"> <span><b>Herkes ilk turda oynasın.</b> Kapalıysa takım sayısı 2’nin kuvveti değilken bazı takımlar ilk turu bay geçer (tablo Son 32 / Son 16 / Çeyrek / Yarı / Final düzenine oturur). Açıkken herkes oynar; tek sayı kalırsa bir takım bay geçer ve turlar “1. Tur, 2. Tur…” diye gider.</span></label>' +
+                    '<div class="text-[11px] text-slate-400">Seçilen: <b class="text-white">' + cupPick.size + '</b></div>' +
                     '<button type="button" data-act="cupstart" class="w-full py-3 rounded-2xl bg-gradient-to-r from-amber-400 to-orange-500 text-slate-950 font-black text-sm cursor-pointer">🏆 TURNUVAYI BAŞLAT</button></div>';
                 return h;
             }
@@ -3958,7 +3971,7 @@
                     '<div class="text-[11px] text-amber-200/80 mt-0.5">Turnuva Şampiyonu</div></div>';
             }
             c.rounds.forEach((r, ri) => {
-                h += '<div><div class="text-[11px] font-extrabold uppercase tracking-wider text-slate-400 mb-1.5 px-1">' + roundName(r.length) + '</div><div class="space-y-1.5">';
+                h += '<div><div class="text-[11px] font-extrabold uppercase tracking-wider text-slate-400 mb-1.5 px-1">' + roundName(r.length, ri) + '</div><div class="space-y-1.5">';
                 const byeNames = r.filter(m => m.bye).map(m => c.teams[m.w] && c.teams[m.w].name).filter(Boolean);
                 if (byeNames.length) h += '<div class="text-[10px] text-slate-500 px-1">Bay geçenler (sonraki tura direkt çıktı): ' + byeNames.map(esc).join(', ') + '</div>';
                 r.forEach((m, mi) => {
@@ -4327,6 +4340,7 @@
             const sel = e.target.getAttribute && e.target.getAttribute('data-sel');
             if (sel) leagueSel[sel] = e.target.value;
             const cp = e.target.getAttribute && e.target.getAttribute('data-cup-pick');
+            if (e.target.hasAttribute && e.target.hasAttribute('data-cup-all')) cupAll = e.target.checked;
             if (cp) { if (e.target.checked) cupPick.add(cp); else cupPick.delete(cp); renderLeague(); }
             const coach = e.target.getAttribute && e.target.getAttribute('data-coach');
             if (coach) {
