@@ -3995,6 +3995,9 @@
                 });
                 h += '</div></div>';
             });
+            const pseudo = { teams: Object.values(c.teams), matches: [] };
+            c.rounds.forEach(r => r.forEach(m => { if (m.done && !m.bye) pseudo.matches.push({ home: m.a, away: m.b, hg: m.ga, ag: m.gb, scorers: m.scorers || [], players: m.players || [], motm: m.motm || null }); }));
+            h += '<div><div class="text-[11px] font-extrabold uppercase tracking-wider text-amber-300 mb-1.5 px-1 mt-1">🏅 Turnuva Krallıkları</div>' + viewScorers(pseudo) + '</div>';
             h += '<button type="button" data-act="cupend" class="w-full py-2 rounded-xl bg-slate-800 border border-slate-700 text-[11px] font-bold text-red-400 cursor-pointer">🗑️ Turnuvayı kapat / yeni turnuva</button></div>';
             return h;
         }
@@ -4016,6 +4019,9 @@
             } else m.w = m.ga > m.gb ? m.a : m.b;
             m.done = true;
             m.scorers = matchState.scorers.map(x => ({ team: x.team, name: x.name, own: !!x.own, min: x.min }));
+            const rt = computeRatings();
+            m.players = rt.ents.map(e => ({ t: e.team, n: e.name, r: e.role, g: e.g, a: e.a, og: e.og, oa: e.oa, rt: Math.round(e.rating * 10) / 10 }));
+            m.motm = rt.best ? { t: rt.best.team, n: rt.best.name, r: rt.best.role, rt: Math.round(rt.best.rating * 10) / 10 } : null;
             cupFill(c);
             if (c.champion) txt += ' · 🏆 Şampiyon: ' + c.teams[c.champion].name;
             matchState.recorded = saveCup(c);
