@@ -84,6 +84,13 @@
                             <input type="color" id="homeColor" value="#ef4444" class="w-7 h-7 rounded-lg cursor-pointer bg-transparent border-0 p-0">
                         </div>
                     </div>
+                    <div class="flex items-center justify-end gap-2 mb-3 -mt-1">
+                        <span class="text-[11px] text-slate-400">2. Renk / Desen:</span>
+                        <select id="homePattern" class="px-1.5 py-1 rounded-lg bg-slate-800 border border-slate-700 text-[11px] font-bold text-white">
+                            <option value="">Tek renk</option><option value="half">Yarı yarıya</option><option value="stripe">Dikey çizgili</option><option value="hoop">Yatay çizgili</option>
+                        </select>
+                        <input type="color" id="homeColor2" value="#ffffff" class="w-7 h-7 rounded-lg cursor-pointer bg-transparent border-0 p-0">
+                    </div>
 
                     <div class="flex items-center gap-3 mb-3">
                         <div id="homeLogoContainer" class="relative w-16 h-16 rounded-full bg-white border-2 border-dashed border-slate-600 flex items-center justify-center overflow-hidden shrink-0 shadow-inner cursor-pointer hover:border-sky-500 transition">
@@ -166,6 +173,13 @@
                             <span class="text-[11px] text-slate-400">Forma Rengi:</span>
                             <input type="color" id="awayColor" value="#3b82f6" class="w-7 h-7 rounded-lg cursor-pointer bg-transparent border-0 p-0">
                         </div>
+                    </div>
+                    <div class="flex items-center justify-end gap-2 mb-3 -mt-1">
+                        <span class="text-[11px] text-slate-400">2. Renk / Desen:</span>
+                        <select id="awayPattern" class="px-1.5 py-1 rounded-lg bg-slate-800 border border-slate-700 text-[11px] font-bold text-white">
+                            <option value="">Tek renk</option><option value="half">Yarı yarıya</option><option value="stripe">Dikey çizgili</option><option value="hoop">Yatay çizgili</option>
+                        </select>
+                        <input type="color" id="awayColor2" value="#ffffff" class="w-7 h-7 rounded-lg cursor-pointer bg-transparent border-0 p-0">
                     </div>
 
                     <div class="flex items-center gap-3 mb-3">
@@ -316,12 +330,13 @@
             <button type="button" id="leagueRenameBtn" title="Adını değiştir" class="px-2.5 py-2 rounded-xl bg-slate-800 border border-slate-700 text-xs font-bold text-sky-300 cursor-pointer">✏️</button>
             <button type="button" id="leagueDelBtn" title="Ligi sil" class="px-2.5 py-2 rounded-xl bg-slate-800 border border-slate-700 text-xs font-bold text-red-400 cursor-pointer">🗑️</button>
         </div>
-        <div id="leagueTabs" class="grid grid-cols-5 gap-1.5 mb-3">
+        <div id="leagueTabs" class="grid grid-cols-6 gap-1 mb-3">
             <button type="button" data-tab="table">📊 Puan</button>
             <button type="button" data-tab="play">⚽ Maç</button>
             <button type="button" data-tab="scorers">🏅 Krallık</button>
             <button type="button" data-tab="history">📜 Geçmiş</button>
             <button type="button" data-tab="teams">👥 Takım</button>
+            <button type="button" data-tab="cup">🏆 Kupa</button>
         </div>
         <div id="leagueBody"></div>
         <input type="file" id="leagueImportInput" accept="application/json,.json" class="hidden">
@@ -874,6 +889,27 @@
         const awayNameInput = document.getElementById('awayName');
         const homeColorInput = document.getElementById('homeColor');
         const awayColorInput = document.getElementById('awayColor');
+        const homeColor2Input = document.getElementById('homeColor2'), awayColor2Input = document.getElementById('awayColor2');
+        const homePatternSel = document.getElementById('homePattern'), awayPatternSel = document.getElementById('awayPattern');
+        const PATTERNS = ['half', 'stripe', 'hoop'];
+        // Takımın ikinci rengi / deseni (yoksa tek renk)
+        function kitOf(t) { return (t && t.color2 && PATTERNS.includes(t.pattern)) ? { c2: t.color2, pat: t.pattern } : { c2: null, pat: '' }; }
+        function drawKit(c, r, c1, c2, pat) {
+            c.fillStyle = c1;
+            c.beginPath(); c.arc(0, 0, r, 0, Math.PI * 2); c.fill();
+            if (!c2 || !pat) return;
+            c.save();
+            c.beginPath(); c.arc(0, 0, r, 0, Math.PI * 2); c.clip();
+            c.fillStyle = c2;
+            if (pat === 'half') c.fillRect(0, -r, r, r * 2);
+            else {
+                const w = r * 0.4;
+                for (let k = 1, x = -r + w; x < r; k++, x += w) {
+                    if (k % 2 === 1) { if (pat === 'stripe') c.fillRect(x, -r, w, r * 2); else c.fillRect(-r, x, r * 2, w); }
+                }
+            }
+            c.restore();
+        }
         const homeLogoInput = document.getElementById('homeLogoInput');
         const awayLogoInput = document.getElementById('awayLogoInput');
         const homeLogoPreview = document.getElementById('homeLogoPreview');
@@ -993,6 +1029,8 @@
             sbAwayName.textContent = teamConfig.away.name;
             sbHomeBadge.style.borderColor = teamConfig.home.color;
             sbAwayBadge.style.borderColor = teamConfig.away.color;
+            sbHomeBadge.style.boxShadow = teamConfig.home.color2 ? '0 0 0 2px ' + teamConfig.home.color2 : '';
+            sbAwayBadge.style.boxShadow = teamConfig.away.color2 ? '0 0 0 2px ' + teamConfig.away.color2 : '';
             sbHomeBadge.innerHTML = renderBadgeHTML('home');
             sbAwayBadge.innerHTML = renderBadgeHTML('away');
 
@@ -2777,10 +2815,10 @@
                 }
 
                 const teamColor = p.team === 'home' ? homeColorInput.value : awayColorInput.value;
-                ctx.fillStyle = teamColor;
+                const kit = kitOf(teamConfig[p.team]);
+                drawKit(ctx, PLAYER_RADIUS, teamColor, kit.c2, kit.pat);
                 ctx.beginPath();
                 ctx.arc(0, 0, PLAYER_RADIUS, 0, Math.PI * 2);
-                ctx.fill();
                 ctx.lineWidth = 3;
                 ctx.strokeStyle = TH.outline || '#ffffff';
                 ctx.stroke();
@@ -2801,6 +2839,11 @@
                     ctx.font = 'bold 11px Inter';
                     ctx.textAlign = 'center';
                     ctx.textBaseline = 'middle';
+                    if (kit.c2) {
+                        ctx.lineJoin = 'round'; ctx.lineWidth = 3;
+                        ctx.strokeStyle = inkOnColor(ctx.fillStyle) === '#000000' ? '#ffffff' : '#000000';
+                        ctx.strokeText(p.shortRole, 0, 1);
+                    }
                     ctx.fillText(p.shortRole, 0, 1);
                 }
 
@@ -3324,6 +3367,8 @@
             teamConfig.home.name = homeNameInput.value.trim() || 'Kırmızı Şimşekler';
             teamConfig.home.color = homeColorInput.value;
             teamConfig.away.color = awayColorInput.value;
+            teamConfig.home.color2 = homePatternSel.value ? homeColor2Input.value : null; teamConfig.home.pattern = homePatternSel.value;
+            teamConfig.away.color2 = awayPatternSel.value ? awayColor2Input.value : null; teamConfig.away.pattern = awayPatternSel.value;
             teamConfig.away.name = awayNameInput.value.trim() || 'Mavi Fırtına';
             [['home','Kaleci','gk'],['home','Defans','def'],['home','Orta Saha','mid'],['home','Forvet','fwd'],
              ['away','Kaleci','gk'],['away','Defans','def'],['away','Orta Saha','mid'],['away','Forvet','fwd']].forEach(([t, role, k]) => {
@@ -3505,6 +3550,8 @@
                     id: String(t.id),
                     name: String(t.name).slice(0, 18),
                     color: /^#[0-9a-f]{6}$/i.test(t.color) ? t.color : '#888888',
+                    color2: (/^#[0-9a-f]{6}$/i.test(t.color2) && ['half', 'stripe', 'hoop'].includes(t.pattern)) ? t.color2 : null,
+                    pattern: (/^#[0-9a-f]{6}$/i.test(t.color2) && ['half', 'stripe', 'hoop'].includes(t.pattern)) ? t.pattern : '',
                     logo: (typeof t.logo === 'string' && t.logo.indexOf('data:image/') === 0) ? t.logo : null,
                     names,
                     bench: (Array.isArray(t.bench) ? t.bench : []).map(x => String(x).trim().slice(0, 10)).filter(Boolean).slice(0, 12)
@@ -3683,6 +3730,8 @@
             setBench(side, t.bench);
             (side === 'home' ? homeNameInput : awayNameInput).value = t.name;
             (side === 'home' ? homeColorInput : awayColorInput).value = t.color;
+            (side === 'home' ? homeColor2Input : awayColor2Input).value = t.color2 || '#ffffff';
+            (side === 'home' ? homePatternSel : awayPatternSel).value = (t.color2 && PATTERNS.includes(t.pattern)) ? t.pattern : '';
             ROLES.forEach(r => {
                 document.getElementById(side + 'Player_' + ROLE_KEYS[r]).value = (t.names && t.names[r]) || r;
             });
@@ -3693,6 +3742,8 @@
             const name = (side === 'home' ? homeNameInput : awayNameInput).value.trim();
             if (!name) { toast('Önce takım adı yaz'); return; }
             const color = (side === 'home' ? homeColorInput : awayColorInput).value;
+            const pattern = (side === 'home' ? homePatternSel : awayPatternSel).value;
+            const color2 = pattern ? (side === 'home' ? homeColor2Input : awayColor2Input).value : null;
             const names = {};
             ROLES.forEach(r => {
                 names[r] = document.getElementById(side + 'Player_' + ROLE_KEYS[r]).value.trim() || r;
@@ -3701,8 +3752,8 @@
             const L = loadLeague();
             const ex = L.teams.find(t => t.name.toLowerCase() === name.toLowerCase());
             const bench = parseBench(document.getElementById(side + 'Bench').value);
-            if (ex) { ex.name = name; ex.color = color; ex.names = names; ex.logo = logo; ex.bench = bench; }
-            else L.teams.push({ id: uid(), name, color, logo, names, bench });
+            if (ex) { ex.name = name; ex.color = color; ex.color2 = color2; ex.pattern = pattern; ex.names = names; ex.logo = logo; ex.bench = bench; }
+            else L.teams.push({ id: uid(), name, color, color2, pattern, logo, names, bench });
             if (saveLeague(L)) toast((ex ? '✅ ' + name + ' güncellendi' : '✅ ' + name + ' kaydedildi') + ' (' + activeLeague(loadAll()).name + ')');
         }
 
@@ -3711,6 +3762,7 @@
             const lg = matchState.leagueGame;
             if (!lg) { note.classList.add('hidden'); return; }
             if (matchState.recorded) return;
+            if (lg.cup) { recordCupMatch(lg); return; }
             const A = loadAll();
             const L = A.leagues.find(l => l.id === lg.league) || activeLeague(A);
             if (!L.teams.some(t => t.id === lg.home) || !L.teams.some(t => t.id === lg.away)) {
@@ -3750,7 +3802,8 @@
         try { const c = JSON.parse(localStorage.getItem('haxballCoach') || '{}'); if (c.home === 'ai') coachSel.home = 'ai'; if (c.away === 'ai') coachSel.away = 'ai'; } catch (e) {}
 
         function teamBadge(t, size) {
-            const st = 'width:' + size + 'px;height:' + size + 'px;border:2px solid ' + esc(t.color) + ';';
+            const k2 = kitOf(t);
+            const st = 'width:' + size + 'px;height:' + size + 'px;border:2px solid ' + esc(t.color) + ';' + (k2.c2 ? 'box-shadow:0 0 0 2px ' + esc(k2.c2) + ';' : '');
             if (t.logo) return '<img src="' + esc(t.logo) + '" style="' + st + '" class="rounded-full bg-white object-cover shrink-0" alt="">';
             return '<span style="' + st + 'color:' + esc(inkOnWhite(t.color)) + ';font-size:' + Math.round(size * 0.38) + 'px" class="rounded-full bg-white inline-flex items-center justify-center font-black shrink-0">' + esc(getInitials(t.name)) + '</span>';
         }
@@ -3812,6 +3865,145 @@
             return h;
         }
 
+        function coachBox() {
+            return '<div class="rounded-xl bg-slate-800/60 border border-slate-700 p-2.5 space-y-1.5">' +
+                '<div class="text-[11px] font-semibold text-slate-300">🧑‍💼 Teknik Direktör</div>' +
+                ['home', 'away'].map(sd => '<div class="flex items-center justify-between gap-2"><span class="text-[11px] text-slate-400 truncate">' + (sd === 'home' ? 'Ev Sahibi' : 'Deplasman') + '</span>' +
+                    '<select data-coach="' + sd + '" class="px-2 py-1.5 rounded-lg bg-slate-800 border border-slate-700 text-[11px] font-bold text-white">' +
+                    '<option value="me"' + (coachSel[sd] === 'me' ? ' selected' : '') + '>🧑 Ben (planlı değişiklik)</option>' +
+                    '<option value="ai"' + (coachSel[sd] === 'ai' ? ' selected' : '') + '>🤖 Yapay zeka</option></select></div>').join('') +
+                '<div class="text-[10px] text-slate-500">🤖 seçilirse yapay zeka maç içi puanı düşük ya da etkisiz oyuncuyu takımın yedek kadrosundan biriyle değiştirir (en fazla 3, en iyi yedek önce). Yedeği olmayan takımda değişiklik yapılmaz.</div></div>';
+        }
+
+        // ---- Turnuva (eleme usulü): seçilen takımlar herhangi liglerden gelebilir ----
+        const CUP_KEY = 'haxballTournament';
+        const cupPick = new Set();
+        function loadCup() {
+            try {
+                const c = JSON.parse(localStorage.getItem(CUP_KEY) || 'null');
+                if (c && Array.isArray(c.rounds) && c.teams) return c;
+            } catch (e) {}
+            return null;
+        }
+        function saveCup(c) {
+            try {
+                if (c) localStorage.setItem(CUP_KEY, JSON.stringify(c)); else localStorage.removeItem(CUP_KEY);
+                return true;
+            } catch (e) { toast('⚠️ Turnuva kaydedilemedi (depolama dolu)'); return false; }
+        }
+        function roundName(n) { return n === 1 ? '🏆 Final' : n === 2 ? 'Yarı Final' : n === 4 ? 'Çeyrek Final' : n === 8 ? 'Son 16' : n + ' maç'; }
+        function cupSettle(round) {
+            // Bay geçenleri otomatik ilerlet
+            round.forEach(m => { if (!m.done && (!m.a || !m.b)) { m.w = m.a || m.b; m.done = true; m.bye = true; } });
+        }
+        function cupAdvance(c) {
+            const last = c.rounds[c.rounds.length - 1];
+            if (!last.every(m => m.done)) return;
+            if (last.length === 1) { c.champion = last[0].w; return; }
+            const next = [];
+            for (let i = 0; i < last.length; i += 2) next.push({ a: last[i].w, b: last[i + 1].w, done: false });
+            cupSettle(next);
+            c.rounds.push(next);
+            cupAdvance(c);
+        }
+        function startCup() {
+            const A = loadAll();
+            const teams = {}, ids = [];
+            A.leagues.forEach(l => l.teams.forEach(t => {
+                if (cupPick.has(l.id + '|' + t.id)) {
+                    const id = 'c' + ids.length;
+                    teams[id] = Object.assign(JSON.parse(JSON.stringify(t)), { id, lg: l.name });
+                    ids.push(id);
+                }
+            }));
+            if (ids.length < 2 || ids.length > 16) { toast('2 ile 16 arası takım seç'); return; }
+            for (let i = ids.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [ids[i], ids[j]] = [ids[j], ids[i]]; }
+            let size = 2; while (size < ids.length) size *= 2;
+            const byes = size - ids.length;
+            const pairs = [];
+            let k = 0;
+            for (let i = 0; i < byes; i++) pairs.push({ a: ids[k++], b: null, done: false });
+            while (k < ids.length) { pairs.push({ a: ids[k], b: ids[k + 1], done: false }); k += 2; }
+            for (let i = pairs.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [pairs[i], pairs[j]] = [pairs[j], pairs[i]]; }
+            const c = { id: uid(), teams, rounds: [pairs], champion: null };
+            cupSettle(pairs);
+            cupAdvance(c);
+            if (saveCup(c)) { cupPick.clear(); renderLeague(); }
+        }
+        function viewCup() {
+            const c = loadCup();
+            if (!c) {
+                const A = loadAll();
+                let h = '<div class="rounded-2xl bg-slate-900/90 border border-slate-800 p-3 space-y-2">' +
+                    '<div class="text-[11px] font-semibold text-slate-300">🏆 Yeni Turnuva (eleme usulü)</div>' +
+                    '<div class="text-[10px] text-slate-500">Her ligden istediğin kadar takım seç (2-16). Takım sayısı 2’nin kuvveti değilse bazı takımlar ilk turu bay geçer. Beraberlikte seri penaltılarla kazanan belirlenir.</div>';
+                let any = false;
+                A.leagues.forEach(l => {
+                    if (!l.teams.length) return;
+                    any = true;
+                    h += '<div class="text-[10px] font-bold text-slate-500 mt-1">🏆 ' + esc(l.name) + '</div>';
+                    l.teams.forEach(t => {
+                        const key = l.id + '|' + t.id;
+                        h += '<label class="flex items-center gap-2 cursor-pointer"><input type="checkbox" data-cup-pick="' + esc(key) + '"' + (cupPick.has(key) ? ' checked' : '') + '>' + teamBadge(t, 22) +
+                            '<span class="text-xs font-bold text-white truncate">' + esc(t.name) + '</span></label>';
+                    });
+                });
+                if (!any) return emptyBox('Önce liglere takım kaydet.');
+                h += '<div class="text-[11px] text-slate-400">Seçilen: <b class="text-white">' + cupPick.size + '</b></div>' +
+                    '<button type="button" data-act="cupstart" class="w-full py-3 rounded-2xl bg-gradient-to-r from-amber-400 to-orange-500 text-slate-950 font-black text-sm cursor-pointer">🏆 TURNUVAYI BAŞLAT</button></div>';
+                return h;
+            }
+            let h = coachBox() + '<div class="space-y-3 mt-3">';
+            if (c.champion && c.teams[c.champion]) {
+                const t = c.teams[c.champion];
+                h += '<div class="rounded-2xl bg-gradient-to-r from-amber-500/20 to-yellow-500/10 border border-amber-400/50 p-4 text-center">' +
+                    '<div class="text-3xl">🏆</div><div class="flex items-center justify-center gap-2 mt-1">' + teamBadge(t, 30) + '<span class="text-lg font-black text-amber-300">' + esc(t.name) + '</span></div>' +
+                    '<div class="text-[11px] text-amber-200/80 mt-0.5">Turnuva Şampiyonu</div></div>';
+            }
+            c.rounds.forEach((r, ri) => {
+                h += '<div><div class="text-[11px] font-extrabold uppercase tracking-wider text-slate-400 mb-1.5 px-1">' + roundName(r.length) + '</div><div class="space-y-1.5">';
+                r.forEach((m, mi) => {
+                    const a = c.teams[m.a], b = c.teams[m.b];
+                    const nm = (t, id) => t ? '<span class="text-xs font-bold truncate ' + (m.done && m.w === id ? 'text-emerald-300' : 'text-white') + '">' + esc(t.name) + '</span>' : '<span class="text-xs text-slate-500">—</span>';
+                    h += '<div class="rounded-xl bg-slate-900/90 border border-slate-800 px-3 py-2 flex items-center gap-2">' +
+                        '<div class="flex items-center gap-1.5 flex-1 min-w-0">' + (a ? teamBadge(a, 20) : '') + nm(a, m.a) + '</div>' +
+                        '<div class="text-center shrink-0 min-w-[60px]">' +
+                        (m.bye ? '<span class="text-[10px] text-slate-500">bay</span>'
+                            : m.done ? '<div class="text-sm font-black text-white">' + m.ga + ' - ' + m.gb + '</div>' + (m.pen ? '<div class="text-[9px] text-slate-400">pen. ' + m.pen[0] + '-' + m.pen[1] + '</div>' : '')
+                            : (a && b ? '<button type="button" data-act="cupplay" data-r="' + ri + '" data-m="' + mi + '" class="px-2 py-1 rounded-lg bg-emerald-500 text-slate-950 text-[11px] font-black cursor-pointer">▶ Oyna</button>' : '<span class="text-[10px] text-slate-500">bekliyor</span>')) +
+                        '</div>' +
+                        '<div class="flex items-center justify-end gap-1.5 flex-1 min-w-0">' + nm(b, m.b) + (b ? teamBadge(b, 20) : '') + '</div></div>';
+                });
+                h += '</div></div>';
+            });
+            h += '<button type="button" data-act="cupend" class="w-full py-2 rounded-xl bg-slate-800 border border-slate-700 text-[11px] font-bold text-red-400 cursor-pointer">🗑️ Turnuvayı kapat / yeni turnuva</button></div>';
+            return h;
+        }
+
+        function recordCupMatch(lg) {
+            const note = document.getElementById('ftLeagueNote');
+            const c = loadCup();
+            const m = c && c.id === lg.cup.id && c.rounds[lg.cup.r] && c.rounds[lg.cup.r][lg.cup.m];
+            if (!m || m.done) { note.textContent = '⚠️ Turnuva maçı bulunamadı, sonuç işlenmedi'; note.classList.remove('hidden'); return; }
+            m.ga = matchState.homeScore; m.gb = matchState.awayScore;
+            let txt = '🏆 Turnuva maçı işlendi';
+            if (m.ga === m.gb) {
+                let pa = 0, pb = 0;
+                for (let i = 0; i < 5; i++) { if (Math.random() < 0.75) pa++; if (Math.random() < 0.75) pb++; }
+                while (pa === pb) { if (Math.random() < 0.75) pa++; if (Math.random() < 0.75) pb++; }
+                m.pen = [pa, pb];
+                m.w = pa > pb ? m.a : m.b;
+                txt = '🥅 Beraberlik: penaltılarla ' + pa + '-' + pb + ', ' + c.teams[m.w].name + ' tur atladı';
+            } else m.w = m.ga > m.gb ? m.a : m.b;
+            m.done = true;
+            m.scorers = matchState.scorers.map(x => ({ team: x.team, name: x.name, own: !!x.own, min: x.min }));
+            cupAdvance(c);
+            if (c.champion) txt += ' · 🏆 Şampiyon: ' + c.teams[c.champion].name;
+            matchState.recorded = saveCup(c);
+            note.textContent = matchState.recorded ? txt : '⚠️ Sonuç kaydedilemedi';
+            note.classList.remove('hidden');
+        }
+
         function viewPlay(L) {
             if (L.teams.length < 2) return emptyBox('Maç yapmak için en az 2 takım kaydet.');
             if (!L.teams.some(t => t.id === leagueSel.home)) leagueSel.home = L.teams[0].id;
@@ -3821,13 +4013,7 @@
             return '<div class="rounded-2xl bg-slate-900/90 border border-slate-800 p-4 space-y-3">' +
                 '<div><div class="text-[11px] font-semibold text-sky-400 mb-1">Ev Sahibi</div><select data-sel="home" class="' + cls + '">' + opts(leagueSel.home) + '</select></div>' +
                 '<div><div class="text-[11px] font-semibold text-amber-400 mb-1">Deplasman</div><select data-sel="away" class="' + cls + '">' + opts(leagueSel.away) + '</select></div>' +
-                '<div class="rounded-xl bg-slate-800/60 border border-slate-700 p-2.5 space-y-1.5">' +
-                '<div class="text-[11px] font-semibold text-slate-300">🧑‍💼 Teknik Direktör</div>' +
-                ['home', 'away'].map(sd => '<div class="flex items-center justify-between gap-2"><span class="text-[11px] text-slate-400 truncate">' + (sd === 'home' ? 'Ev Sahibi' : 'Deplasman') + '</span>' +
-                    '<select data-coach="' + sd + '" class="px-2 py-1.5 rounded-lg bg-slate-800 border border-slate-700 text-[11px] font-bold text-white">' +
-                    '<option value="me"' + (coachSel[sd] === 'me' ? ' selected' : '') + '>🧑 Ben (planlı değişiklik)</option>' +
-                    '<option value="ai"' + (coachSel[sd] === 'ai' ? ' selected' : '') + '>🤖 Yapay zeka</option></select></div>').join('') +
-                '<div class="text-[10px] text-slate-500">🤖 seçilirse yapay zeka maç içi puanı düşük ya da etkisiz oyuncuyu takımın yedek kadrosundan biriyle değiştirir (en fazla 3, en iyi yedek önce). Yedeği olmayan takımda değişiklik yapılmaz.</div></div>' +
+                coachBox() +
                 '<div class="text-[10px] text-slate-500">Maç süresi: <b class="text-slate-300">' + fmtDur(TOTAL_REAL_SECONDS) + '</b> (Ayarlar ekranındaki kaydırıcıdan). Orada planlı oyuncu değişikliği varsa o da uygulanır.</div>' +
                 '<button type="button" data-act="play" class="w-full py-3.5 rounded-2xl bg-gradient-to-r from-emerald-500 to-teal-500 text-slate-950 font-black text-sm cursor-pointer">⚽ LİG MAÇINI BAŞLAT</button></div>';
         }
@@ -3944,9 +4130,9 @@
             const L = loadLeague();
             document.querySelectorAll('#leagueTabs button').forEach(b => {
                 const on = b.getAttribute('data-tab') === leagueTab;
-                b.className = 'py-2 rounded-xl border-2 text-[10px] font-bold cursor-pointer ' + (on ? 'border-emerald-400 text-white bg-slate-800' : 'border-slate-700 text-slate-400 bg-slate-900');
+                b.className = 'py-2 rounded-xl border-2 text-[10px] font-bold cursor-pointer whitespace-nowrap ' + (on ? 'border-emerald-400 text-white bg-slate-800' : 'border-slate-700 text-slate-400 bg-slate-900');
             });
-            const views = { table: viewTable, play: viewPlay, scorers: viewScorers, history: viewHistory, teams: viewTeams };
+            const views = { table: viewTable, play: viewPlay, scorers: viewScorers, history: viewHistory, teams: viewTeams, cup: viewCup };
             leagueBody.innerHTML = views[leagueTab](L);
         }
 
@@ -3959,10 +4145,10 @@
             window.scrollTo(0, 0);
         }
 
-        async function startLeagueMatch(h, a) {
+        async function startLeagueMatch(h, a, cup) {
             await Promise.all([loadTeamToSetup('home', h), loadTeamToSetup('away', a)]);
             pendingLeague = {
-                home: h.id, away: a.id, league: loadAll().active,
+                home: h.id, away: a.id, league: loadAll().active, cup: cup || null,
                 ai: { home: coachSel.home === 'ai', away: coachSel.away === 'ai' },
                 bench: { home: (h.bench || []).slice(), away: (a.bench || []).slice() }
             };
@@ -4003,7 +4189,7 @@
             cancelAnimationFrame(viewerRAF);
 
             [[th, imgH, 'home'], [ta, imgA, 'away']].forEach(([t, img, k]) => {
-                Object.assign(teamConfig[k], { name: t.name, color: t.color, logoDataUrl: t.logo || null, logoImg: img });
+                Object.assign(teamConfig[k], { name: t.name, color: t.color, color2: kitOf(t).c2, pattern: kitOf(t).pat, logoDataUrl: t.logo || null, logoImg: img });
                 teamConfig[k].names = Object.assign({}, t.names);
                 teamConfig[k].baseNames = Object.assign({}, t.names);
                 teamConfig[k].subs = [];
@@ -4134,6 +4320,8 @@
         leagueBody.addEventListener('change', e => {
             const sel = e.target.getAttribute && e.target.getAttribute('data-sel');
             if (sel) leagueSel[sel] = e.target.value;
+            const cp = e.target.getAttribute && e.target.getAttribute('data-cup-pick');
+            if (cp) { if (e.target.checked) cupPick.add(cp); else cupPick.delete(cp); renderLeague(); }
             const coach = e.target.getAttribute && e.target.getAttribute('data-coach');
             if (coach) {
                 coachSel[coach] = e.target.value === 'ai' ? 'ai' : 'me';
@@ -4165,6 +4353,16 @@
                 const a = L.teams.find(t => t.id === leagueSel.away);
                 if (!h || !a || h.id === a.id) { toast('İki farklı takım seç'); return; }
                 startLeagueMatch(h, a);
+            } else if (act === 'cupstart') {
+                startCup();
+            } else if (act === 'cupend') {
+                if (confirm('Turnuva kapatılsın mı? Bu geri alınamaz.')) { saveCup(null); renderLeague(); }
+            } else if (act === 'cupplay') {
+                const c = loadCup();
+                const r = parseInt(el.getAttribute('data-r'), 10), mi = parseInt(el.getAttribute('data-m'), 10);
+                const m = c && c.rounds[r] && c.rounds[r][mi];
+                if (!m || m.done || !m.a || !m.b) return;
+                startLeagueMatch(c.teams[m.a], c.teams[m.b], { id: c.id, r, m: mi });
             } else if (act === 'addzone') {
                 customZones.push({ id: uid(), name: 'Yeni kategori', from: 1, to: 1, color: null });
                 saveCustomZones();
