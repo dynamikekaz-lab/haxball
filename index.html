@@ -150,7 +150,7 @@
                         </div>
                         <div class="mt-3 pt-3 border-t border-slate-800/80">
                             <div class="flex items-center justify-between mb-1.5">
-                                <span class="text-[10px] font-semibold text-slate-400">🪑 Yedek Kadro (oyuna girmez)</span>
+                                <span class="text-[10px] font-semibold text-slate-400">🪑 Yedek Kadro (sadece 🤖 YZ teknik direktör modunda girer)</span>
                                 <span id="homeBenchCount" class="text-[10px] font-bold text-slate-500">0/12</span>
                             </div>
                             <textarea id="homeBench" rows="2" maxlength="160" placeholder="Her satıra bir isim (en fazla 12 oyuncu)" class="w-full px-2 py-1.5 rounded-xl bg-slate-800/75 border border-slate-700/80 text-xs font-bold text-white placeholder-slate-500 focus:outline-none focus:border-sky-500 resize-none"></textarea>
@@ -233,7 +233,7 @@
                         </div>
                         <div class="mt-3 pt-3 border-t border-slate-800/80">
                             <div class="flex items-center justify-between mb-1.5">
-                                <span class="text-[10px] font-semibold text-slate-400">🪑 Yedek Kadro (oyuna girmez)</span>
+                                <span class="text-[10px] font-semibold text-slate-400">🪑 Yedek Kadro (sadece 🤖 YZ teknik direktör modunda girer)</span>
                                 <span id="awayBenchCount" class="text-[10px] font-bold text-slate-500">0/12</span>
                             </div>
                             <textarea id="awayBench" rows="2" maxlength="160" placeholder="Her satıra bir isim (en fazla 12 oyuncu)" class="w-full px-2 py-1.5 rounded-xl bg-slate-800/75 border border-slate-700/80 text-xs font-bold text-white placeholder-slate-500 focus:outline-none focus:border-sky-500 resize-none"></textarea>
@@ -453,8 +453,8 @@
                 <button id="pauseBtn" type="button" class="py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 active:scale-95 text-xs font-bold text-white border border-slate-700 transition cursor-pointer">
                     ⏸️ Duraklat
                 </button>
-                <button id="benchBtn" type="button" class="py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 active:scale-95 text-xs font-bold text-amber-300 border border-slate-700 transition cursor-pointer">
-                    🪑 Yedekler
+                <button id="restartBtn" type="button" class="py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 active:scale-95 text-xs font-bold text-amber-300 border border-slate-700 transition cursor-pointer">
+                    🔄 Yeniden
                 </button>
                 <button id="themeBtn" type="button" class="py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 active:scale-95 text-xs font-bold text-emerald-300 border border-slate-700 transition cursor-pointer">
                     🎨 Tema
@@ -462,28 +462,6 @@
                 <button id="setupBtn" type="button" class="py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 active:scale-95 text-xs font-bold text-sky-300 border border-slate-700 transition cursor-pointer">
                     ⚙️ Ayarlar
                 </button>
-            </div>
-        </div>
-        <!-- Maç içi yedek oyuncu değiştirme penceresi -->
-        <div id="benchModal" class="hidden absolute inset-0 z-40 bg-slate-950/85 backdrop-blur-sm flex items-center justify-center p-4">
-            <div class="w-full max-w-sm rounded-2xl border border-slate-700 bg-slate-900 p-4 shadow-2xl">
-                <div class="flex items-center justify-between mb-3">
-                    <h3 class="text-base font-black text-white">🪑 Yedek Kulübesi</h3>
-                    <button id="benchCloseBtn" type="button" class="text-slate-400 hover:text-white text-xl font-bold">✕</button>
-                </div>
-                <label class="block text-[11px] font-bold text-slate-400 mb-1">Takım</label>
-                <select id="benchTeamSelect" class="w-full mb-3 px-3 py-2 rounded-xl bg-slate-800 border border-slate-700 text-sm font-bold text-white">
-                    <option value="home">Ev Sahibi</option><option value="away">Deplasman</option>
-                </select>
-                <label class="block text-[11px] font-bold text-slate-400 mb-1">Çıkacak oyuncu</label>
-                <select id="benchRoleSelect" class="w-full mb-3 px-3 py-2 rounded-xl bg-slate-800 border border-slate-700 text-sm font-bold text-white"></select>
-                <label class="block text-[11px] font-bold text-slate-400 mb-1">Kulübeden girecek oyuncu</label>
-                <select id="benchPlayerSelect" class="w-full mb-3 px-3 py-2 rounded-xl bg-slate-800 border border-slate-700 text-sm font-bold text-white"></select>
-                <div id="benchModalInfo" class="text-[10px] text-slate-400 mb-3"></div>
-                <div class="grid grid-cols-2 gap-2">
-                    <button id="benchCancelBtn" type="button" class="py-2.5 rounded-xl bg-slate-800 border border-slate-700 text-xs font-bold text-slate-200">Vazgeç</button>
-                    <button id="benchConfirmBtn" type="button" class="py-2.5 rounded-xl bg-emerald-500 text-xs font-black text-slate-950">🔄 Oyuncu Değiştir</button>
-                </div>
             </div>
         </div>
         <!-- Kayıtlı gol tekrarı izleme çubuğu -->
@@ -3222,6 +3200,15 @@
             matchState.scorers = [];
             matchState.pstats = {};
             matchState.recorded = false;
+            matchState.subsLog = [];
+            const lgm = matchState.leagueGame;
+            matchState.aiState = null;
+            if (lgm && lgm.ai) {
+                matchState.aiState = {};
+                ['home', 'away'].forEach(t => {
+                    if (lgm.ai[t]) matchState.aiState[t] = { next: 16, used: 0, last: -99, usedNames: new Set(), roleAt: {}, bench: (lgm.bench && lgm.bench[t]) || [] };
+                });
+            }
             matchState.lastToucher = null;
             matchState.goalPauseTimer = 0;
             const kc = document.getElementById('kickoffCount');
@@ -3239,13 +3226,12 @@
             ['home', 'away'].forEach(t => {
                 const cfg = teamConfig[t];
                 if (cfg.baseNames) cfg.names = Object.assign({}, cfg.baseNames);
-                if (cfg.baseBench) cfg.bench = cfg.baseBench.slice();
                 (cfg.subs || []).forEach(sb => sb.done = false);
                 ['Kaleci', 'Defans', 'Orta Saha', 'Forvet'].forEach(r => pEnt(t, r));
             });
         }
 
-        function showSubToast(team, minute, outName, inName) {
+        function showSubToast(team, minute, outName, inName, ai) {
             const box = document.getElementById('subToasts');
             const color = teamConfig[team].color;
             const el = document.createElement('div');
@@ -3254,13 +3240,31 @@
             el.style.opacity = '0';
             el.style.transform = 'translateX(12px)';
             el.innerHTML =
-                '<div class="text-[9px] font-extrabold uppercase tracking-wide" style="color:' + color + '">🔄 ' + minute + "' " + teamConfig[team].name + '</div>' +
+                '<div class="text-[9px] font-extrabold uppercase tracking-wide" style="color:' + color + '">' + (ai ? '🤖' : '🔄') + ' ' + minute + "' " + teamConfig[team].name + '</div>' +
                 '<div class="text-[11px] font-bold text-emerald-400">⬆ ' + inName + '</div>' +
                 '<div class="text-[11px] font-bold text-red-400">⬇ ' + outName + '</div>';
             box.appendChild(el);
             requestAnimationFrame(() => { el.style.opacity = '1'; el.style.transform = 'translateX(0)'; });
             setTimeout(() => { el.style.opacity = '0'; el.style.transform = 'translateX(12px)'; }, 4500);
             setTimeout(() => el.remove(), 5100);
+        }
+
+        function performSub(t, role, inName, minute, ai) {
+            const cfg = teamConfig[t];
+            const outName = (cfg.names && cfg.names[role]) || role;
+            cfg.names[role] = inName;
+            pEnt(t, role);
+            const pl = players.find(pp => pp.team === t && pp.role === role);
+            if (pl) {
+                applyTraits(pl);
+                pl.kickGlow = 0.8;
+                addFloatingText(pl.x, pl.y - 20, '🔄 ' + inName, '#34d399');
+            }
+            sfx.playWhistle(false);
+            showSubToast(t, minute, outName, inName, ai);
+            setTicker(`${ai ? '🤖' : '🔄'} ${minute}' ${cfg.name}: ${outName} çıktı, ${inName} girdi.`);
+            if (!matchState.subsLog) matchState.subsLog = [];
+            matchState.subsLog.push({ t, m: minute, o: outName, i: inName, ai: !!ai });
         }
 
         function checkSubs() {
@@ -3270,19 +3274,44 @@
                 (cfg.subs || []).forEach(sb => {
                     if (sb.done || gameMinute < sb.minute) return;
                     sb.done = true;
-                    const outName = (cfg.names && cfg.names[sb.role]) || sb.role;
-                    cfg.names[sb.role] = sb.inName;
-                    pEnt(t, sb.role);
-                    const pl = players.find(pp => pp.team === t && pp.role === sb.role);
-                    if (pl) {
-                        applyTraits(pl);
-                        pl.kickGlow = 0.8;
-                        addFloatingText(pl.x, pl.y - 20, '🔄 ' + sb.inName, '#34d399');
-                    }
-                    sfx.playWhistle(false);
-                    showSubToast(t, sb.minute, outName, sb.inName);
-                    setTicker(`🔄 ${sb.minute}' ${cfg.name}: ${outName} çıktı, ${sb.inName} girdi.`);
+                    performSub(t, sb.role, sb.inName, sb.minute, false);
                 });
+            });
+            aiManage(gameMinute);
+        }
+
+        // 🤖 Yapay zeka teknik direktör: maç içi puanı düşük / etkisiz oyuncuyu yedekle değiştirir
+        function aiManage(min) {
+            const st = matchState.aiState;
+            if (!st || min < 16 || min >= 86) return;
+            let ratings = null;
+            ['home', 'away'].forEach(t => {
+                const s = st[t];
+                if (!s || min < s.next) return;
+                s.next = min + 4;
+                if (s.used >= 3 || min - s.last < 8) return;
+                const cfg = teamConfig[t];
+                const onPitch = new Set(Object.values(cfg.names));
+                const pool = s.bench.filter(n => !s.usedNames.has(n) && !onPitch.has(n));
+                if (!pool.length) return;
+                if (!ratings) ratings = computeRatings();
+                const mine = t === 'home' ? matchState.homeScore : matchState.awayScore;
+                const theirs = t === 'home' ? matchState.awayScore : matchState.homeScore;
+                const limit = (mine < theirs && min >= 55) ? 6.2 : 5.7;
+                let worst = null, worstScore = 99;
+                ['Defans', 'Orta Saha', 'Forvet'].forEach(role => {
+                    const nm = cfg.names[role] || role;
+                    const e = matchState.pstats[t + '|' + role + '|' + nm];
+                    if (!e || (s.roleAt[role] !== undefined && min - s.roleAt[role] < 15)) return; // yeni giren oyuncuya süre tanı
+                    let sc = e.rating;
+                    if (min >= 28 && e.shots + e.passes === 0) sc -= 0.5; // sahada etkisiz
+                    if (sc < limit && sc < worstScore) { worst = role; worstScore = sc; }
+                });
+                if (!worst) return;
+                pool.sort((a, b) => traitsFor(b).tier - traitsFor(a).tier || (a < b ? -1 : 1));
+                const pick = pool[0];
+                s.used++; s.last = min; s.usedNames.add(pick); s.roleAt[worst] = min;
+                performSub(t, worst, pick, Math.round(min), true);
             });
         }
 
@@ -3303,9 +3332,7 @@
             });
             ['home', 'away'].forEach(t => {
                 teamConfig[t].baseNames = Object.assign({}, teamConfig[t].names);
-                teamConfig[t].baseBench = parseBench(document.getElementById(t + 'Bench').value);
-                teamConfig[t].bench = teamConfig[t].baseBench.slice();
-                teamConfig[t].subs = collectSubs(t);
+                teamConfig[t].subs = (matchState.leagueGame && matchState.leagueGame.ai && matchState.leagueGame.ai[t]) ? [] : collectSubs(t);
             });
 
             setupScreen.classList.add('hidden');
@@ -3342,68 +3369,23 @@
             setTicker(matchState.paused ? '⏸️ Maç duraklatıldı.' : '▶️ Maç devam ediyor.');
         });
 
-        const benchModal = document.getElementById('benchModal');
-        const benchTeamSelect = document.getElementById('benchTeamSelect');
-        const benchRoleSelect = document.getElementById('benchRoleSelect');
-        const benchPlayerSelect = document.getElementById('benchPlayerSelect');
-        const benchModalInfo = document.getElementById('benchModalInfo');
+        document.getElementById('restartBtn').addEventListener('click', () => {
+            matchState.elapsedReal = 0;
+            matchState.half = 1;
+            matchState.homeScore = 0;
+            matchState.awayScore = 0;
+            matchState.stats = { homePossFrames: 1, awayPossFrames: 1, homeShots: 0, awayShots: 0, homePasses: 0, awayPasses: 0 };
+            matchState.ended = false;
+            matchState.paused = false;
+            fullTimeOverlay.classList.add('hidden');
+            document.getElementById('pauseBtn').textContent = '⏸️ Duraklat';
 
-        function refreshBenchModal() {
-            const team = benchTeamSelect.value;
-            const cfg = teamConfig[team];
-            const roles = ['Kaleci', 'Defans', 'Orta Saha', 'Forvet'];
-            benchRoleSelect.innerHTML = roles.map(role => {
-                const current = (cfg.names && cfg.names[role]) || role;
-                return '<option value="' + esc(role) + '">' + esc(role) + ' — ' + esc(current) + '</option>';
-            }).join('');
-            const reserves = cfg.bench || [];
-            benchPlayerSelect.innerHTML = reserves.map((name, i) => '<option value="' + i + '">' + esc(name) + '</option>').join('');
-            const hasReserves = reserves.length > 0;
-            benchPlayerSelect.disabled = !hasReserves;
-            document.getElementById('benchConfirmBtn').disabled = !hasReserves;
-            document.getElementById('benchConfirmBtn').classList.toggle('opacity-40', !hasReserves);
-            benchModalInfo.textContent = hasReserves
-                ? 'Kulübede ' + reserves.length + ' oyuncu var. Değişiklik anında uygulanır.'
-                : 'Bu takımın kulübesinde yedek oyuncu kalmadı.';
-        }
-
-        function closeBenchModal() { benchModal.classList.add('hidden'); }
-        document.getElementById('benchBtn').addEventListener('click', () => {
-            if (matchState.ended) { toast('Maç sona erdi.'); return; }
-            refreshBenchModal();
-            benchModal.classList.remove('hidden');
-        });
-        document.getElementById('benchCloseBtn').addEventListener('click', closeBenchModal);
-        document.getElementById('benchCancelBtn').addEventListener('click', closeBenchModal);
-        benchTeamSelect.addEventListener('change', refreshBenchModal);
-
-        document.getElementById('benchConfirmBtn').addEventListener('click', () => {
-            if (matchState.ended) return;
-            const team = benchTeamSelect.value;
-            const role = benchRoleSelect.value;
-            const cfg = teamConfig[team];
-            const index = parseInt(benchPlayerSelect.value, 10);
-            if (!cfg || !Array.isArray(cfg.bench) || !Number.isInteger(index) || !cfg.bench[index]) {
-                toast('Bu takımda kullanılabilir yedek yok.');
-                refreshBenchModal();
-                return;
-            }
-            const incoming = cfg.bench.splice(index, 1)[0];
-            const outgoing = (cfg.names && cfg.names[role]) || role;
-            cfg.names[role] = incoming;
-            const player = players.find(p => p.team === team && p.role === role);
-            if (player) {
-                applyTraits(player);
-                player.kickGlow = 0.8;
-                addFloatingText(player.x, player.y - 20, '🔄 ' + incoming, '#34d399');
-            }
-            pEnt(team, role);
-            const minute = Math.max(0, Math.floor((matchState.elapsedReal / TOTAL_REAL_SECONDS) * 90));
-            showSubToast(team, minute, outgoing, incoming);
-            setTicker('🔄 ' + cfg.name + ': ' + outgoing + ' çıktı, ' + incoming + ' oyuna girdi.');
+            resetSubs();
+            createPlayers();
+            resetPositionsForKickoff('home');
+            updateScoreboardUI();
             sfx.playWhistle(false);
-            refreshBenchModal();
-            if (!cfg.bench.length) closeBenchModal();
+            setTicker('🔄 Maç baştan başlatıldı!');
         });
 
         document.getElementById('setupBtn').addEventListener('click', () => {
@@ -3558,25 +3540,53 @@
                     n: String(m.motm.n).slice(0, 10),
                     r: String(m.motm.r || '').slice(0, 12),
                     rt: Math.max(0, Math.min(10, Number(m.motm.rt) || 0))
-                } : null
+                } : null,
+                subs: (Array.isArray(m.subs) ? m.subs : []).filter(x => x && x.o && x.i).slice(0, 12).map(x => ({
+                    t: x.t === 'away' ? 'away' : 'home', m: Math.max(0, Math.min(120, parseInt(x.m, 10) || 0)),
+                    o: String(x.o).slice(0, 10), i: String(x.i).slice(0, 10), ai: !!x.ai
+                }))
             }));
             return { teams, matches };
         }
         // PURE-END
 
         // Çoklu lig: { active: id, leagues: [{ id, name, teams, matches }] }. Eski tek lig verisi otomatik "Lig 1" olur.
+        // Özel sıra kategorileri (renk kümeleri) her ligin kendi verisinde tutulur
+        function sanitizeZones(arr) {
+            if (!Array.isArray(arr)) return [];
+            return arr.filter(z =>
+                z && typeof z.id === 'string' && typeof z.name === 'string' &&
+                Number.isFinite(Number(z.from)) && Number.isFinite(Number(z.to))
+            ).slice(0, 12).map(z => ({
+                id: z.id, name: String(z.name).slice(0, 28), from: Math.max(1, Number(z.from)),
+                to: Math.max(1, Number(z.to)),
+                color: /^#[0-9a-fA-F]{6}$/.test(z.color || '') ? z.color : null
+            }));
+        }
+        function ensureZones(A) {
+            let legacy = null;
+            A.leagues.forEach(l => {
+                if (Array.isArray(l.zones)) { l.zones = sanitizeZones(l.zones); return; }
+                // Eski sürümden: ortak kategoriler bir kez her lige kopyalanır, sonra bağımsız olur
+                if (legacy === null) {
+                    try { legacy = sanitizeZones(JSON.parse(localStorage.getItem('haxballCustomZones') || '[]')); } catch (e) { legacy = []; }
+                }
+                l.zones = legacy.map(z => Object.assign({}, z));
+            });
+            return A;
+        }
         function loadAll() {
             try {
                 const o = JSON.parse(localStorage.getItem(LEAGUE_KEY) || 'null');
                 if (o && Array.isArray(o.leagues) && o.leagues.length) {
                     if (!o.leagues.some(l => l.id === o.active)) o.active = o.leagues[0].id;
-                    return o;
+                    return ensureZones(o);
                 }
                 if (o && Array.isArray(o.teams) && Array.isArray(o.matches)) {
-                    return { active: 'l1', leagues: [{ id: 'l1', name: 'Lig 1', teams: o.teams, matches: o.matches }] };
+                    return ensureZones({ active: 'l1', leagues: [{ id: 'l1', name: 'Lig 1', teams: o.teams, matches: o.matches }] });
                 }
             } catch (e) {}
-            return { active: 'l1', leagues: [{ id: 'l1', name: 'Lig 1', teams: [], matches: [] }] };
+            return ensureZones({ active: 'l1', leagues: [{ id: 'l1', name: 'Lig 1', teams: [], matches: [] }] });
         }
         function saveAll(A, quiet) {
             try { localStorage.setItem(LEAGUE_KEY, JSON.stringify(A)); return true; }
@@ -3714,7 +3724,8 @@
                 hg: matchState.homeScore, ag: matchState.awayScore,
                 date: Date.now(), scorers: matchState.scorers.slice(),
                 players: ents.map(e => ({ t: e.team, n: e.name, r: e.role, g: e.g, a: e.a, og: e.og, oa: e.oa, rt: Math.round(e.rating * 10) / 10 })),
-                motm: best ? { t: best.team, n: best.name, r: best.role, rt: Math.round(best.rating * 10) / 10 } : null
+                motm: best ? { t: best.team, n: best.name, r: best.role, rt: Math.round(best.rating * 10) / 10 } : null,
+                subs: (matchState.subsLog || []).slice(0, 12)
             });
             let ok = saveAll(A, true);
             let clipsDropped = false;
@@ -3735,6 +3746,8 @@
         const leagueBody = document.getElementById('leagueBody');
         let leagueTab = 'table';
         const leagueSel = { home: null, away: null };
+        const coachSel = { home: 'me', away: 'me' };
+        try { const c = JSON.parse(localStorage.getItem('haxballCoach') || '{}'); if (c.home === 'ai') coachSel.home = 'ai'; if (c.away === 'ai') coachSel.away = 'ai'; } catch (e) {}
 
         function teamBadge(t, size) {
             const st = 'width:' + size + 'px;height:' + size + 'px;border:2px solid ' + esc(t.color) + ';';
@@ -3748,19 +3761,14 @@
         // Kullanıcının kendi puan tablosu kategorileri: ad, sıra aralığı ve isteğe bağlı renk.
         const ZONE_CONFIG_KEY = 'haxballCustomZones';
         let customZones = [];
-        try {
-            const savedZones = JSON.parse(localStorage.getItem(ZONE_CONFIG_KEY) || '[]');
-            if (Array.isArray(savedZones)) customZones = savedZones.filter(z =>
-                z && typeof z.id === 'string' && typeof z.name === 'string' &&
-                Number.isFinite(Number(z.from)) && Number.isFinite(Number(z.to))
-            ).map(z => ({
-                id: z.id, name: z.name, from: Math.max(1, Number(z.from)),
-                to: Math.max(1, Number(z.to)),
-                color: /^#[0-9a-fA-F]{6}$/.test(z.color || '') ? z.color : null
-            }));
-        } catch (e) {}
+        // Aktif ligin kategorilerini yükle (her lig kendi kategorilerini kullanır)
+        function syncZones() {
+            customZones = sanitizeZones(activeLeague(loadAll()).zones);
+        }
         function saveCustomZones() {
-            try { localStorage.setItem(ZONE_CONFIG_KEY, JSON.stringify(customZones)); } catch (e) {}
+            const A = loadAll();
+            activeLeague(A).zones = customZones.map(z => Object.assign({}, z));
+            saveAll(A);
         }
         function zoneForRank(rank) {
             const position = rank + 1;
@@ -3813,6 +3821,13 @@
             return '<div class="rounded-2xl bg-slate-900/90 border border-slate-800 p-4 space-y-3">' +
                 '<div><div class="text-[11px] font-semibold text-sky-400 mb-1">Ev Sahibi</div><select data-sel="home" class="' + cls + '">' + opts(leagueSel.home) + '</select></div>' +
                 '<div><div class="text-[11px] font-semibold text-amber-400 mb-1">Deplasman</div><select data-sel="away" class="' + cls + '">' + opts(leagueSel.away) + '</select></div>' +
+                '<div class="rounded-xl bg-slate-800/60 border border-slate-700 p-2.5 space-y-1.5">' +
+                '<div class="text-[11px] font-semibold text-slate-300">🧑‍💼 Teknik Direktör</div>' +
+                ['home', 'away'].map(sd => '<div class="flex items-center justify-between gap-2"><span class="text-[11px] text-slate-400 truncate">' + (sd === 'home' ? 'Ev Sahibi' : 'Deplasman') + '</span>' +
+                    '<select data-coach="' + sd + '" class="px-2 py-1.5 rounded-lg bg-slate-800 border border-slate-700 text-[11px] font-bold text-white">' +
+                    '<option value="me"' + (coachSel[sd] === 'me' ? ' selected' : '') + '>🧑 Ben (planlı değişiklik)</option>' +
+                    '<option value="ai"' + (coachSel[sd] === 'ai' ? ' selected' : '') + '>🤖 Yapay zeka</option></select></div>').join('') +
+                '<div class="text-[10px] text-slate-500">🤖 seçilirse yapay zeka maç içi puanı düşük ya da etkisiz oyuncuyu takımın yedek kadrosundan biriyle değiştirir (en fazla 3, en iyi yedek önce). Yedeği olmayan takımda değişiklik yapılmaz.</div></div>' +
                 '<div class="text-[10px] text-slate-500">Maç süresi: <b class="text-slate-300">' + fmtDur(TOTAL_REAL_SECONDS) + '</b> (Ayarlar ekranındaki kaydırıcıdan). Orada planlı oyuncu değişikliği varsa o da uygulanır.</div>' +
                 '<button type="button" data-act="play" class="w-full py-3.5 rounded-2xl bg-gradient-to-r from-emerald-500 to-teal-500 text-slate-950 font-black text-sm cursor-pointer">⚽ LİG MAÇINI BAŞLAT</button></div>';
         }
@@ -3868,6 +3883,7 @@
                     '<span class="text-base font-black text-white px-2">' + m.hg + ' - ' + m.ag + '</span>' +
                     '<div class="flex items-center justify-end gap-1.5 flex-1 min-w-0"><span class="text-xs font-bold text-white truncate">' + esc(b.name) + '</span>' + teamBadge(b, 24) + '</div></div>' +
                     ((hl || al) ? '<div class="grid grid-cols-2 gap-2 mt-1.5 text-[10px] text-slate-400"><div>' + hl + '</div><div class="text-right">' + al + '</div></div>' : '') +
+                    ((m.subs && m.subs.length) ? '<div class="mt-1.5 text-[10px] text-slate-400">' + m.subs.map(x => (x.ai ? '🤖' : '🔄') + " " + x.m + "' " + esc((x.t === 'home' ? a : b).name) + ': ⬆ ' + esc(x.i) + ' ⬇ ' + esc(x.o)).join('<br>') + '</div>' : '') +
                     (m.motm ? '<div class="mt-1.5 text-[10px] text-yellow-300 font-bold">⭐ Maçın adamı: ' + esc(m.motm.n) + ' (' + esc((m.motm.t === 'home' ? a : b).name) + ') ' + m.motm.rt.toFixed(1) + '</div>' : '') +
                     '</div>';
             });
@@ -3892,6 +3908,23 @@
                 });
                 h += '</div>';
             }
+            const A2 = loadAll();
+            const others = A2.leagues.filter(l => l.id !== A2.active && l.teams.length);
+            if (others.length) {
+                h += '<div class="rounded-2xl bg-slate-900/90 border border-slate-800 p-3 mt-3 space-y-2">' +
+                    '<div class="text-[11px] font-semibold text-slate-400">📥 Başka ligden takım al (kopyalanır, maç geçmişi gelmez)</div>';
+                others.forEach(l => {
+                    h += '<div class="text-[10px] font-bold text-slate-500 mt-1">🏆 ' + esc(l.name) + '</div>';
+                    l.teams.forEach(t => {
+                        const has = L.teams.some(x => x.name === t.name);
+                        h += '<div class="flex items-center gap-2">' + teamBadge(t, 22) +
+                            '<span class="flex-1 min-w-0 text-xs font-bold text-white truncate">' + esc(t.name) + '</span>' +
+                            (has ? '<span class="text-[10px] text-slate-500">Bu ligde var</span>'
+                                 : '<button type="button" data-act="taketeam" data-lid="' + esc(l.id) + '" data-id="' + esc(t.id) + '" class="px-2.5 py-1 rounded-lg bg-slate-800 border border-slate-700 text-[11px] font-bold text-emerald-300 cursor-pointer">➕ Bu lige al</button>') + '</div>';
+                    });
+                });
+                h += '</div>';
+            }
             h += '<div class="rounded-2xl bg-slate-900/90 border border-slate-800 p-3 mt-3 space-y-2">' +
                 '<div class="text-[11px] font-semibold text-slate-400">💾 Yedek (tüm ligler)</div>' +
                 '<div class="grid grid-cols-2 gap-2">' +
@@ -3904,6 +3937,7 @@
         }
 
         function renderLeague() {
+            syncZones();
             const A = loadAll();
             document.getElementById('leagueSelect').innerHTML = A.leagues.map(l =>
                 '<option value="' + esc(l.id) + '"' + (l.id === A.active ? ' selected' : '') + '>🏆 ' + esc(l.name) + '</option>').join('');
@@ -3927,7 +3961,11 @@
 
         async function startLeagueMatch(h, a) {
             await Promise.all([loadTeamToSetup('home', h), loadTeamToSetup('away', a)]);
-            pendingLeague = { home: h.id, away: a.id, league: loadAll().active };
+            pendingLeague = {
+                home: h.id, away: a.id, league: loadAll().active,
+                ai: { home: coachSel.home === 'ai', away: coachSel.away === 'ai' },
+                bench: { home: (h.bench || []).slice(), away: (a.bench || []).slice() }
+            };
             leagueScreen.classList.add('hidden');
             document.getElementById('startMatchBtn').click();
         }
@@ -4060,7 +4098,7 @@
             const name = (prompt('Yeni ligin adı:', 'Lig ' + (A.leagues.length + 1)) || '').trim().slice(0, 24);
             if (!name) return;
             const id = uid();
-            A.leagues.push({ id, name, teams: [], matches: [] });
+            A.leagues.push({ id, name, teams: [], matches: [], zones: [] });
             A.active = id;
             if (saveAll(A)) { leagueSel.home = leagueSel.away = null; leagueTab = 'teams'; renderLeague(); toast('✅ ' + name + ' kuruldu'); }
         });
@@ -4096,6 +4134,11 @@
         leagueBody.addEventListener('change', e => {
             const sel = e.target.getAttribute && e.target.getAttribute('data-sel');
             if (sel) leagueSel[sel] = e.target.value;
+            const coach = e.target.getAttribute && e.target.getAttribute('data-coach');
+            if (coach) {
+                coachSel[coach] = e.target.value === 'ai' ? 'ai' : 'me';
+                try { localStorage.setItem('haxballCoach', JSON.stringify(coachSel)); } catch (err) {}
+            }
             const zoneId = e.target.getAttribute && e.target.getAttribute('data-zone-id');
             const zoneField = e.target.getAttribute && e.target.getAttribute('data-zone-field');
             if (zoneId && zoneField) {
@@ -4130,6 +4173,16 @@
                 customZones = customZones.filter(z => z.id !== id);
                 saveCustomZones();
                 renderLeague();
+            } else if (act === 'taketeam') {
+                const A = loadAll();
+                const src = A.leagues.find(l => l.id === el.getAttribute('data-lid'));
+                const t = src && src.teams.find(x => x.id === id);
+                const cur = activeLeague(A);
+                if (!t) return;
+                if (cur.teams.some(x => x.name === t.name)) { toast('Bu ligde aynı isimli takım var'); return; }
+                cur.teams.push(JSON.parse(JSON.stringify(Object.assign({}, t, { id: uid() }))));
+                if (saveAll(A)) { renderLeague(); toast('✅ ' + t.name + ' bu lige alındı'); }
+                else toast('⚠️ Kaydedilemedi (depolama dolu olabilir)');
             } else if (act === 'watch') {
                 watchGoal(id, parseInt(el.getAttribute('data-g'), 10));
             } else if (act === 'clearclips') {
@@ -4198,7 +4251,7 @@
                 if (raw && Array.isArray(raw.leagues)) {
                     const leagues = raw.leagues.map(l => {
                         const d = sanitizeLeague(l);
-                        return d ? { id: String((l && l.id) || uid()), name: String((l && l.name) || 'Lig').slice(0, 24), teams: d.teams, matches: d.matches } : null;
+                        return d ? { id: String((l && l.id) || uid()), name: String((l && l.name) || 'Lig').slice(0, 24), teams: d.teams, matches: d.matches, zones: Array.isArray(l.zones) ? sanitizeZones(l.zones) : undefined } : null;
                     }).filter(Boolean);
                     if (!leagues.length) { toast('⚠️ Geçersiz yedek dosyası'); return; }
                     if (confirm(leagues.length + ' lig yüklenecek. Mevcut TÜM ligler değiştirilsin mi?')) {
