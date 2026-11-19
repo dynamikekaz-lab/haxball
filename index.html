@@ -148,6 +148,13 @@
                             </div>
                             <div id="homeSubs" class="space-y-1.5"></div>
                         </div>
+                        <div class="mt-3 pt-3 border-t border-slate-800/80">
+                            <div class="flex items-center justify-between mb-1.5">
+                                <span class="text-[10px] font-semibold text-slate-400">🪑 Yedek Kadro (oyuna girmez)</span>
+                                <span id="homeBenchCount" class="text-[10px] font-bold text-slate-500">0/12</span>
+                            </div>
+                            <textarea id="homeBench" rows="2" maxlength="160" placeholder="Her satıra bir isim (en fazla 12 oyuncu)" class="w-full px-2 py-1.5 rounded-xl bg-slate-800/75 border border-slate-700/80 text-xs font-bold text-white placeholder-slate-500 focus:outline-none focus:border-sky-500 resize-none"></textarea>
+                        </div>
                     </div>
                 </div>
 
@@ -224,6 +231,13 @@
                             </div>
                             <div id="awaySubs" class="space-y-1.5"></div>
                         </div>
+                        <div class="mt-3 pt-3 border-t border-slate-800/80">
+                            <div class="flex items-center justify-between mb-1.5">
+                                <span class="text-[10px] font-semibold text-slate-400">🪑 Yedek Kadro (oyuna girmez)</span>
+                                <span id="awayBenchCount" class="text-[10px] font-bold text-slate-500">0/12</span>
+                            </div>
+                            <textarea id="awayBench" rows="2" maxlength="160" placeholder="Her satıra bir isim (en fazla 12 oyuncu)" class="w-full px-2 py-1.5 rounded-xl bg-slate-800/75 border border-slate-700/80 text-xs font-bold text-white placeholder-slate-500 focus:outline-none focus:border-sky-500 resize-none"></textarea>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -273,6 +287,8 @@
                     <button type="button" data-color="#ec4899" class="ball-preset w-8 h-8 rounded-full border-2 border-slate-700 cursor-pointer" style="background:#ec4899"></button>
                     <button type="button" data-color="#0f172a" class="ball-preset w-8 h-8 rounded-full border-2 border-slate-700 cursor-pointer" style="background:#0f172a"></button>
             </div>
+            <div class="text-[11px] font-semibold text-slate-400 mt-3 mb-2">🎨 Top Deseni</div>
+            <div id="ballStyles" class="grid grid-cols-5 gap-1.5"></div>
         </div>
 
         <!-- Lig Butonu -->
@@ -1072,7 +1088,7 @@
             let a = h || 1;
             const rnd = () => { a = (a + 0x6D2B79F5) | 0; let t = Math.imul(a ^ (a >>> 15), 1 | a); t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t; return ((t ^ (t >>> 14)) >>> 0) / 4294967296; };
             rnd(); rnd();
-            const acc = 0.96 + 0.08 * rnd();
+            let acc = 0.96 + 0.08 * rnd();
             const noise = 0.97 + 0.06 * rnd();
             // 5 güç grubu: 0 çok güçsüz, 1 güçsüz, 2 orta, 3 güçlü, 4 çok güçlü (%10 / %22 / %36 / %22 / %10)
             // Varsayılan pozisyon adları → hep orta (2)
@@ -1081,23 +1097,25 @@
                 tier = 2;
             } else {
                 const r = rnd();
-                tier = r < 0.10 ? 0 : r < 0.32 ? 1 : r < 0.68 ? 2 : r < 0.90 ? 3 : 4;
+                // 5: efsane, 1000 isimde yaklaşık 5 tanesi (%0,5)
+                tier = r < 0.10 ? 0 : r < 0.32 ? 1 : r < 0.68 ? 2 : r < 0.90 ? 3 : r < 0.995 ? 4 : 5;
             }
+            if (tier === 5) acc = 1.3;   // efsane oyuncu: ivme belirgin şekilde yüksek
             // Tier tabanlı çekirdek + hafif gürültü (aynı isim = aynı tier)
-            const iqCore = [0.12, 0.32, 0.52, 0.74, 0.92][tier];
-            const curveCore = [0.10, 0.28, 0.50, 0.72, 0.94][tier];
-            const shotCore = [0.12, 0.30, 0.52, 0.76, 0.94][tier];
+            const iqCore = [0.12, 0.32, 0.52, 0.74, 0.92, 1.4][tier];
+            const curveCore = [0.10, 0.28, 0.50, 0.72, 0.94, 1.4][tier];
+            const shotCore = [0.12, 0.30, 0.52, 0.76, 0.94, 1.4][tier];
             // Kaleci: kötü tier gerçekten kötü, iyi tier belirgin şekilde iyi
-            const gkCore = [0.08, 0.25, 0.50, 0.78, 0.96][tier];
+            const gkCore = [0.08, 0.25, 0.50, 0.78, 0.96, 0.99][tier];
             return {
                 tier,
-                spd: [0.96, 0.98, 1.0, 1.02, 1.04][tier] * (0.99 + 0.02 * noise),
+                spd: [0.96, 0.98, 1.0, 1.02, 1.04, 1.2][tier] * (0.99 + 0.02 * noise),
                 acc,
-                pow: [0.72, 0.86, 1.0, 1.14, 1.28][tier] * noise,
-                spr: [0.55, 0.78, 1.0, 1.22, 1.45][tier],
-                iq: Math.max(0.02, Math.min(0.99, iqCore + (rnd() - 0.5) * 0.12)),
-                curve: Math.max(0.02, Math.min(0.99, curveCore + (rnd() - 0.5) * 0.12)),
-                shot: Math.max(0.02, Math.min(0.99, shotCore + (rnd() - 0.5) * 0.12)),
+                pow: [0.72, 0.86, 1.0, 1.14, 1.28, 1.42][tier] * noise,
+                spr: [0.55, 0.78, 1.0, 1.22, 1.45, 1.8][tier],
+                iq: Math.max(0.02, Math.min(tier === 5 ? 1.5 : 0.99, iqCore + (rnd() - 0.5) * 0.12)),
+                curve: Math.max(0.02, Math.min(tier === 5 ? 1.5 : 0.99, curveCore + (rnd() - 0.5) * 0.12)),
+                shot: Math.max(0.02, Math.min(tier === 5 ? 1.5 : 0.99, shotCore + (rnd() - 0.5) * 0.12)),
                 gk: Math.max(0.02, Math.min(0.99, gkCore + (rnd() - 0.5) * 0.10))
             };
         }
@@ -1105,6 +1123,8 @@
             if (!p.base) p.base = { maxSpeed: p.maxSpeed, accel: p.accel };
             const nm = (teamConfig[p.team].names && teamConfig[p.team].names[p.role]) || p.role;
             p.tr = traitsFor(nm);
+            // Kaleciler herkes için ortalama (normal) seviyede: isimden etkilenmez
+            if (p.role === 'Kaleci') p.tr = { tier: 2, spd: 1, acc: 1, pow: 1, spr: 1, iq: 0.52, curve: 0.5, shot: 0.52, gk: 0.5 };
             p.maxSpeed = p.base.maxSpeed * p.tr.spd;
             p.accel = p.base.accel * p.tr.acc;
         }
@@ -1273,8 +1293,6 @@
             matchState.passIndicator = null;
             matchState.floatingTexts = [];
             matchState.frames = [];
-            // Santra sonrası kısa süre kendi kalesine vuruşu engelle
-            matchState.kickoffProtect = 2.8;
 
             players.forEach(p => {
                 p.vx = 0;
@@ -1459,31 +1477,6 @@
                     uy = ty / tl + ny * 0.5;
                     const ul = Math.hypot(ux, uy) || 1;
                     ux /= ul; uy /= ul;
-                }
-            }
-            // Sadece kendi kale AĞZINA giden vuruşları engelle — geri pas serbest
-            if (p) {
-                const isHome = p.team === 'home';
-                const goalY = isHome ? (PITCH_H - WALL_PAD) : WALL_PAD;
-                const dy = goalY - ball.y;
-                const towardOwn = isHome ? (uy > 0.08) : (uy < -0.08);
-                let intoMouth = false;
-                if (towardOwn && Math.abs(uy) > 0.05) {
-                    const t = dy / uy;
-                    if (t > 0 && t < 320) {
-                        const crossX = ball.x + ux * t;
-                        intoMouth = Math.abs(crossX - PITCH_W / 2) < (GOAL_WIDTH / 2 + 10);
-                    }
-                }
-                // Ağza gidiyorsa yana/ileri aç; normal geri paslara dokunma
-                if (intoMouth) {
-                    const fwd = isHome ? -1 : 1;
-                    const side = (ball.x < PITCH_W / 2) ? -0.75 : 0.75;
-                    ux = side;
-                    uy = fwd * 0.45 + uy * 0.2;
-                    const ul = Math.hypot(ux, uy) || 1;
-                    ux /= ul; uy /= ul;
-                    opts = Object.assign({}, opts, { rocket: false, mega: false, soft: false, curve: false });
                 }
             }
             ball.curveTimer = 0;
@@ -1852,7 +1845,7 @@
                             const directOk = laneClear(ball.x, ball.y, m.x, m.y, p.team);
                             if (!throughOk && !directOk) return;
                             // Geri pas serbest; skor biraz düşük ama yasak değil
-                            let score = Math.min(oppNear, 100) / 100 + progress / 160 - d / 700 + Math.random() * (0.4 - 0.3 * p.tr.iq);
+                            let score = Math.min(oppNear, 100) / 100 + progress / 160 - d / 700 + Math.random() * Math.max(0, 0.4 - 0.3 * p.tr.iq);
                             if (progress < 0) score -= 0.08; // hafif ceza, tamamen kesme
                             if (m.role === 'Kaleci') score -= 0.15;
                             if (ot && ot.to === p && ot.from === m) score += 1.2;   // duvar pasında geri pas
@@ -2013,8 +2006,16 @@
                             matchState.passIndicator = { fromX: ball.x, fromY: ball.y, toX: aimX, toY: aimY, color: passPlan.through ? '#fbbf24' : '#60a5fa', life: 0.45 };
                         } else {
                             // Şut isabeti: yüksek shot → hedef daralır (daha isabetli)
-                            const aimSpread = 70 - 50 * (p.tr.shot || 0.5);
-                            const goalTargetX = (PITCH_W - GOAL_WIDTH) / 2 + GOAL_WIDTH / 2 + (Math.random() - 0.5) * aimSpread;
+                            const aimSpread = Math.max(4, 70 - 50 * (p.tr.shot || 0.5));
+                            const gcx0 = (PITCH_W - GOAL_WIDTH) / 2 + GOAL_WIDTH / 2;
+                            let goalTargetX = gcx0 + (Math.random() - 0.5) * aimSpread;
+                            // Efsane (isabet > 1): kalecinin uzak köşesine, direğe yakın nişan alır
+                            const cornerBias = Math.max(0, Math.min(1, ((p.tr.shot || 0.5) - 1) / 0.4)) * 0.9;
+                            if (cornerBias > 0) {
+                                const gk0 = players.find(o => o.team !== p.team && o.role === 'Kaleci');
+                                const farX = gcx0 + ((gk0 && gk0.x < gcx0) ? 1 : -1) * (GOAL_WIDTH / 2 - 20);
+                                goalTargetX = goalTargetX * (1 - cornerBias) + farX * cornerBias;
+                            }
                             const goalTargetY = oppGoalY;
                             const stx = goalTargetX - ball.x;
                             const sty = goalTargetY - ball.y;
@@ -2362,7 +2363,6 @@
             updateEffects(dt);
 
             matchState.elapsedReal += dt;
-            if (matchState.kickoffProtect > 0) matchState.kickoffProtect = Math.max(0, matchState.kickoffProtect - dt);
             checkSubs();
 
             if (matchState.half === 1 && matchState.elapsedReal >= TOTAL_REAL_SECONDS / 2) {
@@ -2512,6 +2512,111 @@
         } catch (e) {}
 
         let ballColor = '#ffffff', ballRGB = '255, 255, 255', ballEdge = '#0f172a', ballDot = '#0f172a';
+        let ballStyle = 2;
+        try { const bs = parseInt(localStorage.getItem('haxballBallStyle'), 10); if (bs >= 1 && bs <= 5) ballStyle = bs; } catch (e) {}
+        const BALL_STYLE_NAMES = ['Eski', 'Klasik', 'Sade', 'İki renk', 'Halka'];
+        // 5 top deseni (yalnızca görünüm; fiziğe etkisi yoktur). roll: topun yuvarlanma açısı
+        function drawBallPattern(c, style, R, roll) {
+            const k = R / 9.5;
+            c.save();
+            c.strokeStyle = ballDot;
+            c.fillStyle = ballDot;
+            c.lineJoin = 'round';
+            c.lineCap = 'round';
+            if (style === 1) {            // Eski: ortada nokta
+                c.beginPath(); c.arc(0, 0, 3 * k, 0, Math.PI * 2); c.fill();
+                c.restore();
+                return;
+            }
+            c.beginPath();
+            c.arc(0, 0, R - 0.8 * k, 0, Math.PI * 2);
+            c.clip();
+            if (style === 5) {            // Halka: hedef gibi, dönmez
+                c.lineWidth = 1.5 * k;
+                c.beginPath(); c.arc(0, 0, R * 0.58, 0, Math.PI * 2); c.stroke();
+                c.beginPath(); c.arc(0, 0, R * 0.2, 0, Math.PI * 2); c.fill();
+                c.restore();
+                return;
+            }
+            c.rotate(roll);
+            const pent = (px, py, pr, rot) => {
+                c.beginPath();
+                for (let i = 0; i < 5; i++) {
+                    const a = rot + i * Math.PI * 2 / 5;
+                    const x = px + Math.cos(a) * pr, y = py + Math.sin(a) * pr;
+                    if (i === 0) c.moveTo(x, y); else c.lineTo(x, y);
+                }
+                c.closePath();
+                c.fill();
+            };
+            if (style === 2) {            // Klasik futbol topu
+                c.lineWidth = 0.8 * k;
+                for (let i = 0; i < 5; i++) {
+                    const a = -Math.PI / 2 + i * Math.PI * 2 / 5;
+                    c.beginPath();
+                    c.moveTo(Math.cos(a) * R * 0.3, Math.sin(a) * R * 0.3);
+                    c.lineTo(Math.cos(a) * R * 0.78, Math.sin(a) * R * 0.78);
+                    c.stroke();
+                    const b = a + Math.PI / 5;
+                    pent(Math.cos(b) * R * 1.04, Math.sin(b) * R * 1.04, R * 0.25, b + Math.PI);
+                }
+                pent(0, 0, R * 0.29, -Math.PI / 2);
+            } else if (style === 3) {     // Sade: tek büyük beşgen, kısa dikişler
+                c.lineWidth = 1 * k;
+                pent(0, 0, R * 0.45, -Math.PI / 2);
+                for (let i = 0; i < 5; i++) {
+                    const a = -Math.PI / 2 + i * Math.PI * 2 / 5;
+                    c.beginPath();
+                    c.moveTo(Math.cos(a) * R * 0.45, Math.sin(a) * R * 0.45);
+                    c.lineTo(Math.cos(a) * R * 0.9, Math.sin(a) * R * 0.9);
+                    c.stroke();
+                }
+            } else if (style === 4) {     // İki renkli: yarısı koyu, dönerken belli olur
+                c.beginPath();
+                c.arc(0, 0, R, 0, Math.PI);
+                c.closePath();
+                c.fill();
+                c.fillStyle = ballColor;
+                c.beginPath(); c.arc(0, 0, R * 0.2, 0, Math.PI * 2); c.fill();
+            }
+            c.restore();
+        }
+        function renderBallStyles() {
+            const box = document.getElementById('ballStyles');
+            if (!box) return;
+            if (!box.children.length) {
+                for (let i = 1; i <= 5; i++) {
+                    const b = document.createElement('button');
+                    b.type = 'button';
+                    b.setAttribute('data-style', String(i));
+                    b.className = 'ball-style rounded-xl border-2 border-slate-700 bg-slate-800/70 py-1.5 flex flex-col items-center gap-1 cursor-pointer';
+                    b.innerHTML = '<canvas width="68" height="68" style="width:34px;height:34px"></canvas><span class="text-[9px] font-bold text-slate-300">' + i + '. ' + BALL_STYLE_NAMES[i - 1] + '</span>';
+                    b.addEventListener('click', () => {
+                        ballStyle = i;
+                        try { localStorage.setItem('haxballBallStyle', String(i)); } catch (e) {}
+                        renderBallStyles();
+                    });
+                    box.appendChild(b);
+                }
+            }
+            box.querySelectorAll('.ball-style').forEach(b => {
+                const i = +b.getAttribute('data-style');
+                const on = i === ballStyle;
+                b.classList.toggle('border-emerald-400', on);
+                b.classList.toggle('border-slate-700', !on);
+                const c = b.querySelector('canvas').getContext('2d');
+                c.setTransform(1, 0, 0, 1, 0, 0);
+                c.clearRect(0, 0, 68, 68);
+                c.translate(34, 34);
+                const R = 15;
+                c.fillStyle = ballColor;
+                c.beginPath(); c.arc(0, 0, R, 0, Math.PI * 2); c.fill();
+                c.lineWidth = 2.4;
+                c.strokeStyle = ballEdge;
+                c.stroke();
+                drawBallPattern(c, i, R, 0.5);
+            });
+        }
         try { const sc = localStorage.getItem('haxballBall'); if (/^#[0-9a-f]{6}$/i.test(sc || '')) ballColor = sc; } catch (e) {}
         function setBallColor(c) {
             if (!/^#[0-9a-f]{6}$/i.test(c)) return;
@@ -2527,6 +2632,7 @@
             const pv = document.getElementById('ballPreview');
             pv.style.background = c; pv.style.borderColor = ballEdge;
             document.getElementById('ballPreviewDot').style.background = ballDot;
+            renderBallStyles();
             document.querySelectorAll('.ball-preset').forEach(btn => {
                 const on = btn.getAttribute('data-color').toLowerCase() === c.toLowerCase();
                 btn.classList.toggle('border-emerald-400', on);
@@ -2766,37 +2872,8 @@
             ctx.strokeStyle = ballEdge;
             ctx.stroke();
 
-            // Görsel futbol topu deseni: yalnızca çizim katmanı; konum, hız ve çarpışmaya etkisi yoktur.
-            ctx.save();
-            ctx.beginPath();
-            ctx.arc(0, 0, BALL_RADIUS - 0.7, 0, Math.PI * 2);
-            ctx.clip();
-            ctx.strokeStyle = ballDot;
-            ctx.fillStyle = ballDot;
-            ctx.lineWidth = 0.9;
-            ctx.lineJoin = 'round';
-            const patternR = BALL_RADIUS * 0.29;
-            ctx.beginPath();
-            for (let k = 0; k < 5; k++) {
-                const a = -Math.PI / 2 + k * Math.PI * 2 / 5;
-                const px = Math.cos(a) * patternR, py = Math.sin(a) * patternR;
-                if (k === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py);
-            }
-            ctx.closePath();
-            ctx.fill();
-            for (let k = 0; k < 5; k++) {
-                const a = -Math.PI / 2 + k * Math.PI * 2 / 5;
-                ctx.beginPath();
-                ctx.moveTo(Math.cos(a) * patternR * 1.15, Math.sin(a) * patternR * 1.15);
-                ctx.lineTo(Math.cos(a) * (BALL_RADIUS - 1), Math.sin(a) * (BALL_RADIUS - 1));
-                ctx.stroke();
-            }
-            ctx.restore();
-
-            ctx.fillStyle = ballDot;
-            ctx.beginPath();
-            ctx.arc(0, 0, 3, 0, Math.PI * 2);
-            ctx.fill();
+            // Top deseni: yalnızca çizim katmanı; konum, hız ve çarpışmaya etkisi yoktur.
+            drawBallPattern(ctx, ballStyle, BALL_RADIUS, (ball.x + ball.y * 0.6) / (BALL_RADIUS * 1.6));
             ctx.restore();
 
             matchState.particles.forEach(pt => {
@@ -3377,7 +3454,8 @@
                     name: String(t.name).slice(0, 18),
                     color: /^#[0-9a-f]{6}$/i.test(t.color) ? t.color : '#888888',
                     logo: (typeof t.logo === 'string' && t.logo.indexOf('data:image/') === 0) ? t.logo : null,
-                    names
+                    names,
+                    bench: (Array.isArray(t.bench) ? t.bench : []).map(x => String(x).trim().slice(0, 10)).filter(Boolean).slice(0, 12)
                 };
             });
             const ids = new Set(teams.map(t => t.id));
@@ -3500,7 +3578,29 @@
             });
         }
 
+        // Yedek kadro: lige kaydedilir, listelenir ama maça girmez
+        function parseBench(text) {
+            const seen = new Set(), out = [];
+            String(text || '').split(/[\n,;]+/).forEach(x => {
+                const n = x.trim().slice(0, 10);
+                if (!n || seen.has(n.toLowerCase())) return;
+                seen.add(n.toLowerCase());
+                out.push(n);
+            });
+            return out.slice(0, 12);
+        }
+        function updateBenchCount(side) {
+            const el = document.getElementById(side + 'BenchCount');
+            if (el) el.textContent = parseBench(document.getElementById(side + 'Bench').value).length + '/12';
+        }
+        function setBench(side, arr) {
+            document.getElementById(side + 'Bench').value = (arr || []).join('\n');
+            updateBenchCount(side);
+        }
+        ['home', 'away'].forEach(side => document.getElementById(side + 'Bench').addEventListener('input', () => updateBenchCount(side)));
+
         function loadTeamToSetup(side, t) {
+            setBench(side, t.bench);
             (side === 'home' ? homeNameInput : awayNameInput).value = t.name;
             (side === 'home' ? homeColorInput : awayColorInput).value = t.color;
             ROLES.forEach(r => {
@@ -3520,8 +3620,9 @@
             const logo = teamConfig[side].logoDataUrl ? await shrinkLogo(teamConfig[side].logoDataUrl) : null;
             const L = loadLeague();
             const ex = L.teams.find(t => t.name.toLowerCase() === name.toLowerCase());
-            if (ex) { ex.name = name; ex.color = color; ex.names = names; ex.logo = logo; }
-            else L.teams.push({ id: uid(), name, color, logo, names });
+            const bench = parseBench(document.getElementById(side + 'Bench').value);
+            if (ex) { ex.name = name; ex.color = color; ex.names = names; ex.logo = logo; ex.bench = bench; }
+            else L.teams.push({ id: uid(), name, color, logo, names, bench });
             if (saveLeague(L)) toast((ex ? '✅ ' + name + ' güncellendi' : '✅ ' + name + ' kaydedildi') + ' (' + activeLeague(loadAll()).name + ')');
         }
 
@@ -3603,11 +3704,9 @@
             rows.forEach((r, i) => {
                 const av = r.gf - r.ga;
                 const zone = zoneForRank(i);
-                const bar = zone && zone.color
-                    ? '<span style="display:inline-block;width:4px;height:18px;border-radius:2px;background:' + zone.color + ';margin-right:6px;vertical-align:middle;flex-shrink:0"></span>'
-                    : '<span style="display:inline-block;width:4px;height:18px;margin-right:6px;flex-shrink:0"></span>';
+                const edge = zone && zone.color ? 'box-shadow:inset 4px 0 0 ' + zone.color + ';' : '';
                 h += '<tr class="border-t border-slate-800 text-center" style="color:#e2e8f0">' +
-                    '<td class="py-2 pl-2 text-left font-bold" style="color:#cbd5e1">' + bar + (i + 1) + '</td>' +
+                    '<td class="py-2 pl-3 text-left font-bold" style="color:#cbd5e1;' + edge + '">' + (i + 1) + '</td>' +
                     '<td class="text-left"><div class="flex items-center gap-1.5 min-w-0">' + teamBadge(r.team, 20) + '<span class="truncate font-bold max-w-[100px]" style="color:#ffffff">' + esc(r.team.name) + '</span></div></td>' +
                     '<td style="color:#e2e8f0">' + r.p + '</td><td style="color:#e2e8f0">' + r.w + '</td><td style="color:#e2e8f0">' + r.d + '</td><td style="color:#e2e8f0">' + r.l + '</td><td style="color:#e2e8f0">' + (av > 0 ? '+' + av : av) + '</td>' +
                     '<td class="pr-2 font-black" style="color:#34d399">' + r.pts + '</td></tr>';
@@ -3714,7 +3813,9 @@
                     h += '<div class="rounded-2xl bg-slate-900/90 border border-slate-800 p-3">' +
                         '<div class="flex items-center gap-2">' + teamBadge(t, 30) +
                         '<div class="flex-1 min-w-0"><div class="text-sm font-black text-white truncate">' + esc(t.name) + '</div>' +
-                        '<div class="text-[10px] text-slate-400 truncate">' + ROLES.map(r => ROLE_ICONS[r] + ' ' + esc((t.names && t.names[r]) || r)).join(' · ') + '</div></div></div>' +
+                        '<div class="text-[10px] text-slate-400 truncate">' + ROLES.map(r => ROLE_ICONS[r] + ' ' + esc((t.names && t.names[r]) || r)).join(' · ') + '</div>' +
+                        ((t.bench && t.bench.length) ? '<div class="text-[10px] text-slate-500 mt-0.5">🪑 Yedek (' + t.bench.length + '): ' + t.bench.map(esc).join(', ') + '</div>' : '') +
+                        '</div></div>' +
                         '<div class="grid grid-cols-2 gap-2 mt-2">' +
                         '<button type="button" data-act="editteam" data-id="' + esc(t.id) + '" class="py-1.5 rounded-lg bg-slate-800 border border-slate-700 text-[11px] font-bold text-sky-300 cursor-pointer">✏️ Düzenle</button>' +
                         '<button type="button" data-act="delteam" data-id="' + esc(t.id) + '" class="py-1.5 rounded-lg bg-slate-800 border border-slate-700 text-[11px] font-bold text-red-400 cursor-pointer">🗑️ Sil</button></div></div>';
