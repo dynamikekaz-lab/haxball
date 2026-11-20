@@ -3900,6 +3900,105 @@
             rec(0, new Set(), 0, {});
             return best;
         }
+        // Güncel özet (Markdown): tüm ligler + turnuva; puan durumu, tüm krallıklar, kadrolar, maç sonuçları
+        function buildSummaryMd(A) {
+            const out = ['# Haxball Ligleri - Güncel Özet', '', 'Oluşturulma: ' + new Date().toLocaleString('tr-TR'), '', 'Puan: galibiyet 3, beraberlik 1. Sıralama: puan, averaj, atılan gol, isim. Tecrübe yalnızca lig maçlarından hesaplanır.', ''];
+            const cmp = (a, b) => a.localeCompare(b, 'tr');
+            const sections = A.leagues.map(L => ({ title: L.name, L, lig: true }));
+            const cup = loadCup();
+            if (cup) {
+                const ms = [];
+                cup.rounds.forEach((r, ri) => r.forEach(m => {
+                    if (!m.done || m.bye || !m.a || !m.b) return;
+                    ms.push({ home: m.a, away: m.b, hg: m.ga, ag: m.gb, date: null, scorers: m.scorers || [], players: m.players || [], motm: m.motm || null });
+                }));
+                sections.push({ title: '🏆 Turnuva' + (cup.champion && cup.teams[cup.champion] ? ' (Şampiyon: ' + cup.teams[cup.champion].name + ')' : ' (devam ediyor)'), L: { name: 'Turnuva', teams: Object.values(cup.teams), matches: ms }, lig: false });
+            }
+            sections.forEach(sec => {
+                const L = sec.L;
+                const tn = {};
+                L.teams.forEach(t => tn[t.id] = t.name);
+                const nm = id => tn[id] || '?';
+                out.push('', '## ' + sec.title, '');
+                const st = {};
+                L.teams.forEach(t => st[t.id] = { id: t.id, name: t.name, p: 0, w: 0, d: 0, l: 0, gf: 0, ga: 0, pts: 0 });
+                L.matches.forEach(m => {
+                    const a = st[m.home], b = st[m.away];
+                    if (!a || !b) return;
+                    a.p++; b.p++; a.gf += m.hg; a.ga += m.ag; b.gf += m.ag; b.ga += m.hg;
+                    if (m.hg > m.ag) { a.w++; b.l++; a.pts += 3; }
+                    else if (m.hg < m.ag) { b.w++; a.l++; b.pts += 3; }
+                    else { a.d++; b.d++; a.pts++; b.pts++; }
+                });
+                const order = Object.values(st).sort((x, y) => y.pts - x.pts || (y.gf - y.ga) - (x.gf - x.ga) || y.gf - x.gf || cmp(x.name, y.name));
+                out.push('### Puan Durumu', '', '| # | Takım | O | G | B | M | AG | YG | Av | P |', '|---|---|---|---|---|---|---|---|---|---|');
+                order.forEach((s, i) => out.push('| ' + (i + 1) + ' | ' + s.name + ' | ' + s.p + ' | ' + s.w + ' | ' + s.d + ' | ' + s.l + ' | ' + s.gf + ' | ' + s.ga + ' | ' + (s.gf - s.ga > 0 ? '+' : '') + (s.gf - s.ga) + ' | ' + s.pts + ' |'));
+                const goals = {}, assists = {}, motm = {}, clean = {}, saves = {}, defs = {}, poss = {};
+                const add = (map, key, v) => { map[key] = (map[key] || 0) + v; };
+                L.matches.forEach(m => {
+                    const side = { home: nm(m.home), away: nm(m.away) };
+                    (m.scorers || []).forEach(s => { if (!s.own) add(goals, side[s.team] + '||' + s.name, 1); });
+                    (m.players || []).forEach(p => {
+                        const tm = side[p.t];
+                        if (p.a > 0) add(assists, tm + '||' + p.n, p.a);
+                        if (p.sv > 0) add(saves, tm + '||' + p.n, p.sv);
+                        if (p.df > 0) add(defs, tm + '||' + p.n, p.df);
+                        if (p.pz > 0) add(poss, tm + '||' + p.n, p.pz);
+                        if (p.r === 'Kaleci') {
+                            if (p.t === 'home' && m.ag === 0) add(clean, side.home + '||' + p.n, 1);
+                            if (p.t === 'away' && m.hg === 0) add(clean, side.away + '||' + p.n, 1);
+                        }
+                    });
+                    if (m.motm) add(motm, side[m.motm.t] + '||' + m.motm.n, 1);
+                });
+                const top = (map, title, fmt) => {
+                    out.push('', '### ' + title, '');
+                    const items = Object.entries(map).sort((x, y) => y[1] - x[1] || cmp(x[0], y[0])).slice(0, 10);
+                    if (!items.length) { out.push('Henüz kayıt yok.'); return; }
+                    out.push('| # | Oyuncu | Takım | Değer |', '|---|---|---|---|');
+                    items.forEach(([k, v], i) => { const [team, n] = k.split('||'); out.push('| ' + (i + 1) + ' | ' + n + ' | ' + team + ' | ' + (fmt ? fmt(v) : v) + ' |'); });
+                };
+                top(goals, 'Gol Krallığı');
+                top(assists, 'Asist Krallığı');
+                top(saves, 'Kurtarış Krallığı (tüm oyuncular)');
+                top(defs, 'Savunma Krallığı');
+                top(poss, 'Top Hakimiyeti', v => Math.round(v) + ' sn');
+                top(motm, 'Maçın Adamı');
+                top(clean, 'Gol Yemeyen Maç (Kaleci)');
+                if (sec.lig) {
+                    const exp = {};
+                    L.matches.forEach(m => (m.players || []).forEach(p => {
+                        if (!(p.mn > 0)) return;
+                        const k = p.n + '||' + p.r;
+                        if (!exp[k]) exp[k] = { team: nm(p.t === 'home' ? m.home : m.away), name: p.n, role: p.r, v: 0 };
+                        exp[k].team = nm(p.t === 'home' ? m.home : m.away);
+                        exp[k].v += p.mn;
+                    }));
+                    const rows = Object.values(exp).sort((x, y) => y.v - x.v || cmp(x.name, y.name)).slice(0, 10);
+                    out.push('', '### Tecrübe Tablosu (mevki bazlı)', '');
+                    if (!rows.length) out.push('Henüz tecrübe birikmedi.');
+                    else {
+                        out.push('| # | Oyuncu | Takım | Mevki | Dakika | Seviye | Bonus |', '|---|---|---|---|---|---|---|');
+                        rows.forEach((r, i) => out.push('| ' + (i + 1) + ' | ' + r.name + ' | ' + r.team + ' | ' + r.role + ' | ' + Math.round(r.v) + ' | ' + expLevel(r.v) + ' | +' + (Math.min(0.06, r.v / 25000) * 100).toFixed(1) + '% |'));
+                    }
+                }
+                out.push('', '### Takım Kadroları', '');
+                L.teams.forEach(t => {
+                    const n = t.names || {};
+                    out.push('- **' + t.name + '**' + (t.captain ? ' (Kaptan: ' + t.captain + ')' : '') + ': Kaleci ' + (n['Kaleci'] || '') + ', Defans ' + (n['Defans'] || '') + ', Orta Saha ' + (n['Orta Saha'] || '') + ', Forvet ' + (n['Forvet'] || '') + ((t.bench && t.bench.length) ? ' · Yedek: ' + t.bench.join(', ') : ''));
+                });
+                out.push('', '### Maç Sonuçları', '');
+                L.matches.forEach(m => {
+                    const dt = m.date ? new Date(m.date).toLocaleDateString('tr-TR') + ' · ' : '';
+                    out.push('- ' + dt + nm(m.home) + ' **' + m.hg + ' - ' + m.ag + '** ' + nm(m.away));
+                });
+                if (sec.lig && L.zones && L.zones.length) {
+                    out.push('', '### Sıra Kategorileri', '');
+                    L.zones.forEach(z => out.push('- ' + z.name + ': ' + z.from + '.-' + z.to + '. sıra'));
+                }
+            });
+            return out.join('\n') + '\n';
+        }
         function matchPlayerRecords() {
             const { ents, best } = computeRatings();
             const r1 = x => Math.round(x * 10) / 10;
@@ -4299,6 +4398,7 @@
                 '<div class="grid grid-cols-2 gap-2">' +
                 '<button type="button" data-act="export" class="py-2 rounded-lg bg-slate-800 border border-slate-700 text-[11px] font-bold text-emerald-300 cursor-pointer">⬇️ Yedek Al</button>' +
                 '<button type="button" data-act="import" class="py-2 rounded-lg bg-slate-800 border border-slate-700 text-[11px] font-bold text-emerald-300 cursor-pointer">⬆️ Yedekten Yükle</button></div>' +
+                '<button type="button" data-act="summary" class="w-full py-2 rounded-lg bg-slate-800 border border-slate-700 text-[11px] font-bold text-sky-300 cursor-pointer">📄 Güncel özet indir (.md, yapay zekâya vermek için)</button>' +
                 '<div class="grid grid-cols-2 gap-2">' +
                 '<button type="button" data-act="reset" class="py-2 rounded-lg bg-slate-800 border border-slate-700 text-[11px] font-bold text-amber-300 cursor-pointer">🔄 Puanları Sıfırla</button>' +
                 '<button type="button" data-act="wipe" class="py-2 rounded-lg bg-slate-800 border border-slate-700 text-[11px] font-bold text-red-400 cursor-pointer">⚠️ Ligi Boşalt</button></div></div>';
@@ -4622,7 +4722,7 @@
                 window.scrollTo(0, 0);
                 toast('✏️ ' + t.name + ' Ev Sahibi kartına yüklendi. Aynı isimle kaydedersen güncellenir.');
             } else if (act === 'export') {
-                const blob = new Blob([JSON.stringify(loadAll())], { type: 'application/json' });
+                const blob = new Blob([JSON.stringify(Object.assign(loadAll(), { tournament: loadCup() }))], { type: 'application/json' });
                 const url = URL.createObjectURL(blob);
                 const a = document.createElement('a');
                 a.href = url;
@@ -4631,6 +4731,18 @@
                 a.click();
                 a.remove();
                 setTimeout(() => URL.revokeObjectURL(url), 1000);
+            } else if (act === 'summary') {
+                const md = buildSummaryMd(loadAll());
+                const blob = new Blob([md], { type: 'text/markdown' });
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = 'haxball-ozet.md';
+                document.body.appendChild(a);
+                a.click();
+                a.remove();
+                setTimeout(() => URL.revokeObjectURL(url), 1000);
+                toast('📄 Özet indirildi');
             } else if (act === 'import') {
                 document.getElementById('leagueImportInput').click();
             } else if (act === 'reset') {
@@ -4664,7 +4776,10 @@
                     if (!leagues.length) { toast('⚠️ Geçersiz yedek dosyası'); return; }
                     if (confirm(leagues.length + ' lig yüklenecek. Mevcut TÜM ligler değiştirilsin mi?')) {
                         const act = leagues.some(l => l.id === raw.active) ? raw.active : leagues[0].id;
-                        if (saveAll({ active: act, leagues })) { leagueSel.home = leagueSel.away = null; renderLeague(); toast('✅ Yedek yüklendi'); }
+                        if (saveAll({ active: act, leagues })) {
+                            if (raw.tournament && Array.isArray(raw.tournament.rounds)) saveCup(raw.tournament);
+                            leagueSel.home = leagueSel.away = null; renderLeague(); toast('✅ Yedek yüklendi');
+                        }
                     }
                     return;
                 }
