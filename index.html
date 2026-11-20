@@ -874,13 +874,19 @@
         }
         function pStat(p, key) { if (p) pEnt(p.team, p.role)[key]++; }
         // Kurtarış / savunma / tecrübe takibi
+        const DF_COOLDOWN_GAME_MIN = 4;   // aynı oyuncuya iki savunma arası en az bu kadar oyun dakikası (gerçek süreye çevrilir)
         function noteShot(p) { matchState.lastShot = { team: p.team, t: matchState.elapsedReal, saved: false }; }
         function inOwnHalf(p) { return p.team === 'home' ? p.y > PITCH_H / 2 : p.y < PITCH_H / 2; }
         function inOwnBox(p) { return p.team === 'home' ? p.y > PITCH_H - 170 : p.y < 170; }
         function onNewTouch(p, prev) {
             if (!matchState.pstats) return;
-            // Top kapma: rakipten topu alıp kendi yarısında oynamak
-            if (prev && prev.team !== p.team && inOwnHalf(p)) pEnt(p.team, p.role).df++;
+            // Top kapma: rakipten topu alıp kendi yarısında oynamak.
+            // Aynı oyuncuya art arda yazılmasın diye bekleme süresi var (iki rakip arasında top git-gel yapınca şişmesin).
+            if (prev && prev.team !== p.team && inOwnHalf(p)) {
+                const e = pEnt(p.team, p.role);
+                const cd = Math.max(1.5, DF_COOLDOWN_GAME_MIN / 90 * TOTAL_REAL_SECONDS);
+                if (!(matchState.elapsedReal - (e._dfAt === undefined ? -99 : e._dfAt) < cd)) { e.df++; e._dfAt = matchState.elapsedReal; }
+            }
             // Kurtarış: rakip şutundan sonra, kendi ceza sahasında topa ilk dokunan oyuncu
             const sh = matchState.lastShot;
             if (sh && !sh.saved && sh.team !== p.team && matchState.elapsedReal - sh.t < 3 && inOwnBox(p)) {
