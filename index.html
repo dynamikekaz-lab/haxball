@@ -3704,6 +3704,14 @@
 
         // Çoklu lig: { active: id, leagues: [{ id, name, teams, matches }] }. Eski tek lig verisi otomatik "Lig 1" olur.
         // Özel sıra kategorileri (renk kümeleri) her ligin kendi verisinde tutulur
+        function sanitizeValues(o) {
+            const out = {};
+            if (o && typeof o === 'object') Object.keys(o).slice(0, 500).forEach(k => {
+                const v = Number(o[k]);
+                if (Number.isFinite(v) && v >= 0) out[String(k).slice(0, 10)] = Math.min(9999, v);
+            });
+            return out;
+        }
         function sanitizeZones(arr) {
             if (!Array.isArray(arr)) return [];
             return arr.filter(z =>
@@ -3747,7 +3755,7 @@
         function activeLeague(A) { return A.leagues.find(l => l.id === A.active) || A.leagues[0]; }
         function loadLeague() {
             const l = activeLeague(loadAll());
-            return { teams: l.teams, matches: l.matches };
+            return { teams: l.teams, matches: l.matches, values: l.values || {} };
         }
         function saveLeague(L) {
             const A = loadAll();
@@ -3982,10 +3990,23 @@
                         rows.forEach((r, i) => out.push('| ' + (i + 1) + ' | ' + r.name + ' | ' + r.team + ' | ' + r.role + ' | ' + Math.round(r.v) + ' | ' + expLevel(r.v) + ' | +' + (Math.min(0.06, r.v / 25000) * 100).toFixed(1) + '% |'));
                     }
                 }
+                if (sec.lig) {
+                    const rowsV = [];
+                    L.teams.forEach(t => squadNames(t).forEach(n => rowsV.push({ n, team: t.name, v: mvOf(L, n) })));
+                    const seen = {};
+                    const uniq = rowsV.filter(r => (seen[r.n] ? false : (seen[r.n] = true)));
+                    uniq.sort((x, y) => y.v - x.v || cmp(x.n, y.n));
+                    out.push('', '### Piyasa Değerleri (M)', '');
+                    if (!uniq.length) out.push('Henüz değer girilmedi.');
+                    else {
+                        out.push('| Oyuncu | Takım | Değer (M) |', '|---|---|---|');
+                        uniq.forEach(r => out.push('| ' + r.n + ' | ' + r.team + ' | ' + (r.v || 0) + ' |'));
+                    }
+                }
                 out.push('', '### Takım Kadroları', '');
                 L.teams.forEach(t => {
                     const n = t.names || {};
-                    out.push('- **' + t.name + '**' + (t.captain ? ' (Kaptan: ' + t.captain + ')' : '') + ': Kaleci ' + (n['Kaleci'] || '') + ', Defans ' + (n['Defans'] || '') + ', Orta Saha ' + (n['Orta Saha'] || '') + ', Forvet ' + (n['Forvet'] || '') + ((t.bench && t.bench.length) ? ' · Yedek: ' + t.bench.join(', ') : ''));
+                    out.push('- **' + t.name + '**' + (t.captain ? ' (Kaptan: ' + t.captain + ')' : '') + ' (kadro değeri: ' + (Math.round(squadValue(L, t) * 10) / 10) + ' M)' + ': Kaleci ' + (n['Kaleci'] || '') + ', Defans ' + (n['Defans'] || '') + ', Orta Saha ' + (n['Orta Saha'] || '') + ', Forvet ' + (n['Forvet'] || '') + ((t.bench && t.bench.length) ? ' · Yedek: ' + t.bench.join(', ') : ''));
                 });
                 out.push('', '### Maç Sonuçları', '');
                 L.matches.forEach(m => {
@@ -4357,6 +4378,26 @@
             return h + '</div>';
         }
 
+        // Oyuncu piyasa değeri (M): lig bazlı, isme göre, sadece sen değiştirirsin
+        function mvOf(L, name) { const v = L.values && L.values[name]; return Number.isFinite(v) ? v : 0; }
+        function squadNames(t) { return Array.from(new Set(ROLES.map(r => (t.names && t.names[r]) || r).concat(t.bench || []).filter(n => !DEFAULT_ROLE_NAMES.has(String(n).trim().toLocaleLowerCase('tr'))))); }
+        function squadValue(L, t) { return squadNames(t).reduce((sum, n) => sum + mvOf(L, n), 0); }
+        function valueEditorHtml(L) {
+            const names = [];
+            L.teams.forEach(t => squadNames(t).forEach(n => { if (!names.includes(n)) names.push(n); }));
+            if (!names.length) return '';
+            let h = '<div class="rounded-2xl bg-slate-900/90 border border-slate-800 p-3 mt-3 space-y-2"><div class="text-[11px] font-semibold text-slate-400">💰 Piyasa Değerleri (M) · sen belirlersin</div>';
+            L.teams.forEach(t => {
+                const sq = squadNames(t);
+                if (!sq.length) return;
+                h += '<div class="text-[10px] font-bold text-slate-500 mt-1">' + esc(t.name) + '</div>';
+                sq.forEach(n => {
+                    h += '<div class="flex items-center gap-2"><span class="flex-1 min-w-0 text-xs font-bold text-white truncate">' + esc(n) + '</span>' +
+                        '<input type="number" min="0" step="0.5" data-mv="' + esc(n) + '" value="' + (mvOf(L, n) || '') + '" placeholder="0" class="w-20 px-2 py-1 rounded-lg bg-slate-800 border border-slate-700 text-[11px] font-bold text-white text-right"> <span class="text-[10px] text-slate-500">M</span></div>';
+                });
+            });
+            return h + '<div class="text-[10px] text-slate-500">Değeri değiştirdikten sonra alandan çıkman yeterli. Değer isme bağlıdır; aynı isim tüm takımlarda aynı değeri alır.</div></div>';
+        }
         function viewTeams(L) {
             let h = '';
             if (!L.teams.length) h += emptyBox('Kayıtlı takım yok.');
@@ -4368,6 +4409,7 @@
                         '<div class="flex-1 min-w-0"><div class="text-sm font-black text-white truncate">' + esc(t.name) + '</div>' +
                         '<div class="text-[10px] text-slate-400 truncate">' + ROLES.map(r => ROLE_ICONS[r] + ' ' + esc((t.names && t.names[r]) || r)).join(' · ') + '</div>' +
                         ((t.bench && t.bench.length) ? '<div class="text-[10px] text-slate-500 mt-0.5">🪑 Yedek (' + t.bench.length + '): ' + t.bench.map(esc).join(', ') + '</div>' : '') +
+                        '<div class="text-[10px] text-amber-300 mt-0.5">💰 Kadro değeri: ' + (Math.round(squadValue(L, t) * 10) / 10) + ' M</div>' +
                         '</div></div>' +
                         (() => { const sq = Array.from(new Set(ROLES.map(r => (t.names && t.names[r]) || r).concat(t.bench || []))); return '<div class="flex items-center gap-2 mt-2"><span class="text-[10px] text-slate-400 whitespace-nowrap">🎖️ Kaptan</span><select data-cap="' + esc(t.id) + '" class="flex-1 min-w-0 px-2 py-1 rounded-lg bg-slate-800 border border-slate-700 text-[11px] font-bold text-white"><option value="">Yok</option>' + sq.map(n => '<option' + (n === t.captain ? ' selected' : '') + '>' + esc(n) + '</option>').join('') + '</select></div>'; })() +
                         '<div class="grid grid-cols-2 gap-2 mt-2">' +
@@ -4393,6 +4435,7 @@
                 });
                 h += '</div>';
             }
+            h += valueEditorHtml(L);
             h += '<div class="rounded-2xl bg-slate-900/90 border border-slate-800 p-3 mt-3 space-y-2">' +
                 '<div class="text-[11px] font-semibold text-slate-400">💾 Yedek (tüm ligler)</div>' +
                 '<div class="grid grid-cols-2 gap-2">' +
@@ -4621,6 +4664,18 @@
         }));
 
         leagueBody.addEventListener('change', e => {
+            if (e.target.hasAttribute && e.target.hasAttribute('data-mv')) {
+                const A = loadAll();
+                const l = activeLeague(A);
+                const name = e.target.getAttribute('data-mv');
+                const v = parseFloat(e.target.value);
+                l.values = l.values || {};
+                if (Number.isFinite(v) && v >= 0) l.values[name] = Math.round(Math.min(9999, v) * 10) / 10;
+                else delete l.values[name];
+                saveAll(A);
+                renderLeague();
+                return;
+            }
             if (e.target.hasAttribute && e.target.hasAttribute('data-cap')) {
                 const L = loadLeague();
                 const t = L.teams.find(x => x.id === e.target.getAttribute('data-cap'));
@@ -4771,7 +4826,7 @@
                 if (raw && Array.isArray(raw.leagues)) {
                     const leagues = raw.leagues.map(l => {
                         const d = sanitizeLeague(l);
-                        return d ? { id: String((l && l.id) || uid()), name: String((l && l.name) || 'Lig').slice(0, 24), teams: d.teams, matches: d.matches, zones: Array.isArray(l.zones) ? sanitizeZones(l.zones) : undefined } : null;
+                        return d ? { id: String((l && l.id) || uid()), name: String((l && l.name) || 'Lig').slice(0, 24), teams: d.teams, matches: d.matches, zones: Array.isArray(l.zones) ? sanitizeZones(l.zones) : undefined, values: sanitizeValues(l.values) } : null;
                     }).filter(Boolean);
                     if (!leagues.length) { toast('⚠️ Geçersiz yedek dosyası'); return; }
                     if (confirm(leagues.length + ' lig yüklenecek. Mevcut TÜM ligler değiştirilsin mi?')) {
