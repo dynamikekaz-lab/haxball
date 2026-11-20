@@ -903,10 +903,17 @@
         // Tecrübe: ligdeki geçmiş dakikalar (isim|mevki). Her 1500 dk'da en fazla %6 bonus (ivme ve zeka / kaleci için kurtarış)
         function expLevel(mins) { return mins < 60 ? 'Acemi' : mins < 300 ? 'Deneyimli' : mins < 700 ? 'Usta' : 'Kıdemli'; }
         function buildExpMap() {
-            const map = {};
             const lg = matchState.leagueGame;
-            if (!lg) return map;
-            const L = loadAll().leagues.find(l => l.id === lg.league);
+            return lg ? expMapFor(lg.league) : {};
+        }
+        // Mevki kuralı: oyuncu sadece tecrübe kazandığı mevkilerde oynayabilir. Hiç maçı yoksa her mevkide oynayabilir.
+        function allowedRoles(name, em) {
+            const r = XI_ROLES.filter(x => ((em || {})[name + '|' + x] || 0) > 0);
+            return r.length ? r : XI_ROLES.slice();
+        }
+        function expMapFor(lid) {
+            const map = {};
+            const L = loadAll().leagues.find(l => l.id === lid);
             if (!L) return map;
             L.matches.forEach(m => (m.players || []).forEach(p => {
                 const k = p.n + '|' + p.r;
@@ -3389,8 +3396,8 @@
                 if (s.used >= 3 || min - s.last < 8) return;
                 const cfg = teamConfig[t];
                 const onPitch = new Set(Object.values(cfg.names));
-                const pool = s.bench.filter(n => !s.usedNames.has(n) && !onPitch.has(n));
-                if (!pool.length) return;
+                const pool0 = s.bench.filter(n => !s.usedNames.has(n) && !onPitch.has(n));
+                if (!pool0.length) return;
                 if (!ratings) ratings = computeRatings();
                 const mine = t === 'home' ? matchState.homeScore : matchState.awayScore;
                 const theirs = t === 'home' ? matchState.awayScore : matchState.homeScore;
@@ -3405,6 +3412,8 @@
                     if (sc < limit && sc < worstScore) { worst = role; worstScore = sc; }
                 });
                 if (!worst) return;
+                const pool = pool0.filter(n => allowedRoles(n, matchState.expMap).includes(worst));
+                if (!pool.length) return;
                 pool.sort((a, b) => traitsFor(b).tier - traitsFor(a).tier || (a < b ? -1 : 1));
                 const pick = pool[0];
                 s.used++; s.last = min; s.usedNames.add(pick); s.roleAt[worst] = min;
@@ -3437,7 +3446,7 @@
                     if (lgm0.ai && lgm0.ai[t]) {
                         const starters = XI_ROLES.map(r => cfg.names[r]);
                         const squad = Array.from(new Set(starters.concat((lgm0.bench && lgm0.bench[t]) || []).filter(n => n && !DEFAULT_ROLE_NAMES.has(String(n).trim().toLocaleLowerCase('tr')))));
-                        const pick = aiPickXI(squad, formL);
+                        const pick = aiPickXI(squad, formL, buildExpMap());
                         XI_ROLES.forEach(r => { cfg.names[r] = pick[r] || r; });
                         const used = new Set(XI_ROLES.map(r => cfg.names[r]));
                         lgm0.bench[t] = squad.filter(n => !used.has(n));
@@ -3871,7 +3880,7 @@
         // Bayesçi ortalama: az maçlı oyuncu 6.0'a çekilir
         function formScore(f) { return ((f ? f[0] : 0) + 12) / ((f ? f[1] : 0) + 2); }
         // En yüksek toplam puanlı 4'lü (her mevkiye farklı oyuncu). Kadro küçükse boş mevki kalabilir.
-        function aiPickXI(squad, form) {
+        function aiPickXI(squad, form, em) {
             const cand = squad.slice(0, 14);
             let best = {}, bestSum = -1;
             const rec = (ri, used, sum, cur) => {
@@ -3881,7 +3890,7 @@
                 }
                 const r = XI_ROLES[ri];
                 cand.forEach(n => {
-                    if (used.has(n)) return;
+                    if (used.has(n) || !allowedRoles(n, em).includes(r)) return;
                     used.add(n); cur[r] = n;
                     rec(ri + 1, used, sum + formScore(form.byRole[n + '|' + r]), cur);
                     used.delete(n); delete cur[r];
@@ -4319,7 +4328,26 @@
             window.scrollTo(0, 0);
         }
 
+        // Mevki kuralı ihlalleri (insan yönettiği takım için ilk 4 ve planlı değişiklikler)
+        function lineupViolations(team, em, subs) {
+            const bad = [];
+            XI_ROLES.forEach(r => {
+                const n = team.names && team.names[r];
+                if (!n || DEFAULT_ROLE_NAMES.has(String(n).trim().toLocaleLowerCase('tr'))) return;
+                if (!allowedRoles(n, em).includes(r)) bad.push(n + ' → ' + r);
+            });
+            (subs || []).forEach(sb => {
+                if (!allowedRoles(sb.inName, em).includes(sb.role)) bad.push(sb.inName + ' → ' + sb.role + ' (değişiklik)');
+            });
+            return bad;
+        }
         async function startLeagueMatch(h, a, cup) {
+            const lidNow = loadAll().active;
+            const emNow = expMapFor(lidNow);
+            const badH = coachSel.home === 'ai' ? [] : lineupViolations(h, emNow, collectSubs('home'));
+            const badA = coachSel.away === 'ai' ? [] : lineupViolations(a, emNow, collectSubs('away'));
+            const bad = badH.concat(badA);
+            if (bad.length) { toast('⚠️ Mevki kuralı: ' + bad.slice(0, 3).join(', ') + (bad.length > 3 ? ' ...' : '')); return; }
             await Promise.all([loadTeamToSetup('home', h), loadTeamToSetup('away', a)]);
             pendingLeague = {
                 home: h.id, away: a.id, league: loadAll().active, cup: cup || null,
