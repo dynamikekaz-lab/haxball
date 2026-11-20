@@ -3596,11 +3596,39 @@
             return Object.values(t).sort((x, y) =>
                 y.pts - x.pts || (y.gf - y.ga) - (x.gf - x.ga) || y.gf - x.gf || x.team.name.localeCompare(y.team.name, 'tr'));
         }
+        // Oyuncu transfer olunca krallık istatistikleri yeni takımına taşınsın:
+        // oyuncu isme göre birleşir, güncel kadrosunun olduğu takıma yazılır.
+        // (Varsayılan mevki isimleri ve iki takımın kadrosunda birden geçen isimler takıma bağlı kalır.)
+        function playerHome(L) {
+            const generic = new Set(['kaleci', 'defans', 'orta saha', 'ortasaha', 'forvet', 'gk', 'df', 'os', 'fv']);
+            const norm = n => String(n == null ? '' : n).trim().toLocaleLowerCase('tr');
+            const roster = {};
+            (L.teams || []).forEach(t => {
+                const sq = ROLES.map(r => (t.names && t.names[r]) || r).concat(t.bench || []).map(String);
+                new Set(sq).forEach(n => {
+                    if (!n || generic.has(norm(n)) || generic.has(norm(n).replace(/\s+/g, ''))) return;
+                    (roster[n] = roster[n] || []).push(t.id);
+                });
+            });
+            const last = {};
+            (L.matches || []).forEach(m => {
+                const tidOf = side => side === 'home' ? m.home : m.away;
+                (m.players || []).forEach(p => { if (p && p.n) last[p.n] = tidOf(p.t); });
+                (m.scorers || []).forEach(s => { if (s && !s.own && s.name) last[s.name] = tidOf(s.team); });
+            });
+            return function (tid, name) {
+                const rs = roster[name];
+                if (!rs) return (last[name] && !generic.has(norm(name))) ? last[name] : tid; // kadroda yok: son oynadığı takım
+                if (rs.length === 1) return rs[0];               // tek takımın kadrosunda: o takım
+                return rs.includes(tid) ? tid : rs[0];           // belirsiz (aynı isim birden çok kadroda): eski davranış
+            };
+        }
         function computeScorers(L) {
             const map = {};
+            const home = playerHome(L);
             L.matches.forEach(m => (m.scorers || []).forEach(s => {
                 if (s.own) return;
-                const tid = s.team === 'home' ? m.home : m.away;
+                const tid = home(s.team === 'home' ? m.home : m.away, s.name);
                 const k = tid + '|' + s.name;
                 (map[k] = map[k] || { tid, name: s.name, g: 0 }).g++;
             }));
@@ -3609,8 +3637,9 @@
         // Yardımcı: oyuncu bazlı liste (takım + isim anahtarı)
         function tally(L, pick) {
             const map = {};
+            const home = playerHome(L);
             L.matches.forEach(m => pick(m).forEach(x => {
-                const tid = x.t === 'home' ? m.home : m.away;
+                const tid = home(x.t === 'home' ? m.home : m.away, x.n);
                 const k = tid + '|' + x.n;
                 const e = map[k] || (map[k] = { tid, name: x.n, v: 0 });
                 e.v += x.v;
@@ -3625,9 +3654,10 @@
         function computePossession(L) { return tally(L, m => (m.players || []).filter(p => p.pz > 0).map(p => ({ t: p.t, n: p.n, v: p.pz }))); }
         function computeExperience(L) {
             const map = {};
+            const home = playerHome(L);
             L.matches.forEach(m => (m.players || []).forEach(p => {
                 if (!(p.mn > 0)) return;
-                const tid = p.t === 'home' ? m.home : m.away;
+                const tid = home(p.t === 'home' ? m.home : m.away, p.n);
                 const k = p.n + '|' + p.r;
                 const e = map[k] || (map[k] = { tid, name: p.n, role: p.r, v: 0 });
                 e.v += p.mn; e.tid = tid;
@@ -3941,23 +3971,26 @@
                 const order = Object.values(st).sort((x, y) => y.pts - x.pts || (y.gf - y.ga) - (x.gf - x.ga) || y.gf - x.gf || cmp(x.name, y.name));
                 out.push('### Puan Durumu', '', '| # | Takım | O | G | B | M | AG | YG | Av | P |', '|---|---|---|---|---|---|---|---|---|---|');
                 order.forEach((s, i) => out.push('| ' + (i + 1) + ' | ' + s.name + ' | ' + s.p + ' | ' + s.w + ' | ' + s.d + ' | ' + s.l + ' | ' + s.gf + ' | ' + s.ga + ' | ' + (s.gf - s.ga > 0 ? '+' : '') + (s.gf - s.ga) + ' | ' + s.pts + ' |'));
+                const ph = playerHome(L);
                 const goals = {}, assists = {}, motm = {}, clean = {}, saves = {}, defs = {}, poss = {};
                 const add = (map, key, v) => { map[key] = (map[key] || 0) + v; };
                 L.matches.forEach(m => {
+                    const sid = { home: m.home, away: m.away };
+                    const sideOf = (t, n) => nm(ph(sid[t], n));
                     const side = { home: nm(m.home), away: nm(m.away) };
-                    (m.scorers || []).forEach(s => { if (!s.own) add(goals, side[s.team] + '||' + s.name, 1); });
+                    (m.scorers || []).forEach(s => { if (!s.own) add(goals, sideOf(s.team, s.name) + '||' + s.name, 1); });
                     (m.players || []).forEach(p => {
-                        const tm = side[p.t];
+                        const tm = sideOf(p.t, p.n);
                         if (p.a > 0) add(assists, tm + '||' + p.n, p.a);
                         if (p.sv > 0) add(saves, tm + '||' + p.n, p.sv);
                         if (p.df > 0) add(defs, tm + '||' + p.n, p.df);
                         if (p.pz > 0) add(poss, tm + '||' + p.n, p.pz);
                         if (p.r === 'Kaleci') {
-                            if (p.t === 'home' && m.ag === 0) add(clean, side.home + '||' + p.n, 1);
-                            if (p.t === 'away' && m.hg === 0) add(clean, side.away + '||' + p.n, 1);
+                            if (p.t === 'home' && m.ag === 0) add(clean, tm + '||' + p.n, 1);
+                            if (p.t === 'away' && m.hg === 0) add(clean, tm + '||' + p.n, 1);
                         }
                     });
-                    if (m.motm) add(motm, side[m.motm.t] + '||' + m.motm.n, 1);
+                    if (m.motm) add(motm, sideOf(m.motm.t, m.motm.n) + '||' + m.motm.n, 1);
                 });
                 const top = (map, title, fmt) => {
                     out.push('', '### ' + title, '');
@@ -3978,8 +4011,8 @@
                     L.matches.forEach(m => (m.players || []).forEach(p => {
                         if (!(p.mn > 0)) return;
                         const k = p.n + '||' + p.r;
-                        if (!exp[k]) exp[k] = { team: nm(p.t === 'home' ? m.home : m.away), name: p.n, role: p.r, v: 0 };
-                        exp[k].team = nm(p.t === 'home' ? m.home : m.away);
+                        if (!exp[k]) exp[k] = { team: nm(ph(p.t === 'home' ? m.home : m.away, p.n)), name: p.n, role: p.r, v: 0 };
+                        exp[k].team = nm(ph(p.t === 'home' ? m.home : m.away, p.n));
                         exp[k].v += p.mn;
                     }));
                     const rows = Object.values(exp).sort((x, y) => y.v - x.v || cmp(x.name, y.name)).slice(0, 10);
