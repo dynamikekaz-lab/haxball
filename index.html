@@ -861,7 +861,7 @@
                 get() { return cur; },
                 set(p) {
                     if (p === null) { cur = null; matchState.prevToucher = null; return; }
-                    if (p !== cur) { matchState.prevToucher = cur; matchState.prevTouchTime = matchState.curTouchTime; }
+                    if (p !== cur) { matchState.prevToucher = cur; matchState.prevTouchTime = matchState.curTouchTime; onNewTouch(p, cur); }
                     cur = p; matchState.curTouchTime = matchState.elapsedReal;
                 }
             });
@@ -870,9 +870,50 @@
             if (!matchState.pstats) matchState.pstats = {};
             const name = (teamConfig[team].names && teamConfig[team].names[role]) || role;
             const k = team + '|' + role + '|' + name;
-            return matchState.pstats[k] || (matchState.pstats[k] = { team, role, name, g: 0, a: 0, og: 0, oa: 0, shots: 0, passes: 0, conc: 0 });
+            return matchState.pstats[k] || (matchState.pstats[k] = { team, role, name, g: 0, a: 0, og: 0, oa: 0, shots: 0, passes: 0, conc: 0, sv: 0, df: 0, poz: 0, mins: 0 });
         }
         function pStat(p, key) { if (p) pEnt(p.team, p.role)[key]++; }
+        // Kurtarış / savunma / tecrübe takibi
+        function noteShot(p) { matchState.lastShot = { team: p.team, t: matchState.elapsedReal, saved: false }; }
+        function inOwnHalf(p) { return p.team === 'home' ? p.y > PITCH_H / 2 : p.y < PITCH_H / 2; }
+        function inOwnBox(p) { return p.team === 'home' ? p.y > PITCH_H - 170 : p.y < 170; }
+        function onNewTouch(p, prev) {
+            if (!matchState.pstats) return;
+            // Top kapma: rakipten topu alıp kendi yarısında oynamak
+            if (prev && prev.team !== p.team && inOwnHalf(p)) pEnt(p.team, p.role).df++;
+            // Kurtarış: rakip şutundan sonra, kendi ceza sahasında topa ilk dokunan oyuncu
+            const sh = matchState.lastShot;
+            if (sh && !sh.saved && sh.team !== p.team && matchState.elapsedReal - sh.t < 3 && inOwnBox(p)) {
+                pEnt(p.team, p.role).sv++; sh.saved = true;
+            }
+        }
+        // Her karede: oyuncu dakikası (oynadığı mevkide) ve top süresi (topa en yakın oyuncu)
+        function trackStats(dt) {
+            if (!players.length) return;
+            const gm = dt / TOTAL_REAL_SECONDS * 90;
+            let best = null, bd = Infinity;
+            players.forEach(p => {
+                if (!p.role) return;
+                pEnt(p.team, p.role).mins += gm;
+                const d = Math.hypot(ball.x - p.x, ball.y - p.y);
+                if (d < bd) { bd = d; best = p; }
+            });
+            if (best && bd < PLAYER_RADIUS + BALL_RADIUS + 14) pEnt(best.team, best.role).poz += dt;
+        }
+        // Tecrübe: ligdeki geçmiş dakikalar (isim|mevki). Her 1500 dk'da en fazla %6 bonus (ivme ve zeka / kaleci için kurtarış)
+        function expLevel(mins) { return mins < 60 ? 'Acemi' : mins < 300 ? 'Deneyimli' : mins < 700 ? 'Usta' : 'Kıdemli'; }
+        function buildExpMap() {
+            const map = {};
+            const lg = matchState.leagueGame;
+            if (!lg) return map;
+            const L = loadAll().leagues.find(l => l.id === lg.league);
+            if (!L) return map;
+            L.matches.forEach(m => (m.players || []).forEach(p => {
+                const k = p.n + '|' + p.r;
+                map[k] = (map[k] || 0) + (p.mn || 0);
+            }));
+            return map;
+        }
         let animFrameId = null;
         let lastTimestamp = 0;
 
@@ -1163,6 +1204,14 @@
             p.tr = traitsFor(nm);
             // Kaleciler herkes için ortalama (normal) seviyede: isimden etkilenmez
             if (p.role === 'Kaleci') p.tr = { tier: 2, spd: 1, acc: 1, pow: 1, spr: 1, iq: 0.52, curve: 0.5, shot: 0.52, gk: 0.5 };
+            const exMins = (matchState.expMap && matchState.expMap[nm + '|' + p.role]) || 0;
+            const exB = Math.min(0.06, exMins / 25000); // 1500 dk'da %6
+            if (exB > 0) {
+                if (p.role === 'Kaleci') p.tr.gk *= 1 + exB;
+                else { p.tr.acc *= 1 + exB; p.tr.iq *= 1 + exB; }
+            }
+            // Kaptan: zekası biraz yüksek (kaleci hariç)
+            if (teamConfig[p.team].captain && nm === teamConfig[p.team].captain && p.role !== 'Kaleci') p.tr.iq *= 1.03;
             p.maxSpeed = p.base.maxSpeed * p.tr.spd;
             p.accel = p.base.accel * p.tr.acc;
         }
@@ -2070,7 +2119,7 @@
                                 p.kickGlow = 1.0;
                                 addFloatingText(p.x, p.y - 18, '☄️ ROKET FALSO!', '#f43f5e');
                                 setTicker(`☄️ ${teamConfig[p.team].name} takımından roket hızında aşırı falsolu şut!`);
-                                matchState.stats[isHome ? 'homeShots' : 'awayShots']++; pStat(p, 'shots');
+                                matchState.stats[isHome ? 'homeShots' : 'awayShots']++; pStat(p, 'shots'); noteShot(p);
                             } else if (Math.random() < 0.004 + 0.025 * cv * sh) {
                                 doKick(p, stx, sty, 640, { mega: true });
                                 ball.powerShotTimer = 0.85;
@@ -2079,14 +2128,14 @@
                                 p.kickGlow = 1.0;
                                 addFloatingText(p.x, p.y - 18, '🌪️ SÜPER FALSO!', '#e879f9');
                                 setTicker(`🌪️ ${teamConfig[p.team].name} takımından inanılmaz bir süper falsolu şut!`);
-                                matchState.stats[isHome ? 'homeShots' : 'awayShots']++; pStat(p, 'shots');
+                                matchState.stats[isHome ? 'homeShots' : 'awayShots']++; pStat(p, 'shots'); noteShot(p);
                             } else if (Math.random() < 0.03 + 0.12 * cv && Math.hypot(stx, sty) > 90) {
                                 doKick(p, stx, sty, 400, { soft: true });
                                 sfx.playKick(1.1);
                                 p.kickGlow = 0.6;
                                 addFloatingText(p.x, p.y - 18, '🎯 ÇOK FALSOLU!', '#22d3ee');
                                 setTicker(`🎯 ${teamConfig[p.team].name} sert değil ama çok falsolu bir vuruş yaptı!`);
-                                matchState.stats[isHome ? 'homeShots' : 'awayShots']++; pStat(p, 'shots');
+                                matchState.stats[isHome ? 'homeShots' : 'awayShots']++; pStat(p, 'shots'); noteShot(p);
                             } else if (Math.random() < 0.02 + 0.08 * sh) {
                                 doKick(p, stx, sty, 440);
                                 ball.powerShotTimer = 0.85;
@@ -2095,7 +2144,7 @@
                                 p.kickGlow = 0.8;
                                 addFloatingText(p.x, p.y - 18, '🔥 POWER SHOT!', '#f97316');
                                 setTicker(`🔥 ${teamConfig[p.team].name} takımından harika bir Power Shot!`);
-                                matchState.stats[isHome ? 'homeShots' : 'awayShots']++; pStat(p, 'shots');
+                                matchState.stats[isHome ? 'homeShots' : 'awayShots']++; pStat(p, 'shots'); noteShot(p);
                             } else {
                                 const curveShot = Math.hypot(stx, sty) > 110 && Math.random() < (0.18 + 0.55 * cv);
                                 doKick(p, stx, sty, curveShot ? 380 : 290, { curve: curveShot });
@@ -2104,7 +2153,7 @@
                                 p.kickGlow = curveShot ? 0.7 : 0.35;
                                 addFloatingText(p.x, p.y - 18, curveShot ? '🌀 FALSO!' : 'ŞUT', curveShot ? '#c084fc' : '#facc15');
                                 if (curveShot) setTicker(`🌀 ${teamConfig[p.team].name} falsolu vuruş yaptı!`);
-                                matchState.stats[isHome ? 'homeShots' : 'awayShots']++; pStat(p, 'shots');
+                                matchState.stats[isHome ? 'homeShots' : 'awayShots']++; pStat(p, 'shots'); noteShot(p);
                             }
                             p.kickCooldown = 0.38;
                         }
@@ -2400,6 +2449,7 @@
 
             updateEffects(dt);
 
+            trackStats(dt);
             matchState.elapsedReal += dt;
             checkSubs();
 
@@ -2848,6 +2898,10 @@
                 }
 
                 const label = (cfg.names && cfg.names[p.role]) || p.role;
+                if (cfg.captain && label === cfg.captain) {
+                    ctx.beginPath(); ctx.arc(0, 0, PLAYER_RADIUS + 2.5, 0, Math.PI * 2);
+                    ctx.lineWidth = 2.5; ctx.strokeStyle = '#facc15'; ctx.stroke();
+                }
                 ctx.font = 'bold 8.5px Inter';
                 const lw = Math.max(32, ctx.measureText(label).width + 10);
                 ctx.beginPath();
@@ -3375,6 +3429,28 @@
                 const v = document.getElementById(t + 'Player_' + k).value.trim();
                 teamConfig[t].names[role] = v || role;
             });
+            const lgm0 = matchState.leagueGame;
+            if (lgm0) {
+                const formL = leagueFormMap(lgm0.league);
+                ['home', 'away'].forEach(t => {
+                    const cfg = teamConfig[t];
+                    if (lgm0.ai && lgm0.ai[t]) {
+                        const starters = XI_ROLES.map(r => cfg.names[r]);
+                        const squad = Array.from(new Set(starters.concat((lgm0.bench && lgm0.bench[t]) || []).filter(n => n && !DEFAULT_ROLE_NAMES.has(String(n).trim().toLocaleLowerCase('tr')))));
+                        const pick = aiPickXI(squad, formL);
+                        XI_ROLES.forEach(r => { cfg.names[r] = pick[r] || r; });
+                        const used = new Set(XI_ROLES.map(r => cfg.names[r]));
+                        lgm0.bench[t] = squad.filter(n => !used.has(n));
+                    }
+                    const onPitch = XI_ROLES.map(r => cfg.names[r]);
+                    let cap = lgm0.captain ? lgm0.captain[t] : null;
+                    if (!onPitch.includes(cap)) cap = null;
+                    if (!cap && lgm0.ai && lgm0.ai[t]) {
+                        cap = onPitch.reduce((b, n) => (!b || formScore(formL.byName[n]) > formScore(formL.byName[b]) ? n : b), null);
+                    }
+                    cfg.captain = cap || null;
+                });
+            }
             ['home', 'away'].forEach(t => {
                 teamConfig[t].baseNames = Object.assign({}, teamConfig[t].names);
                 teamConfig[t].subs = (matchState.leagueGame && matchState.leagueGame.ai && matchState.leagueGame.ai[t]) ? [] : collectSubs(t);
@@ -3394,6 +3470,7 @@
             matchState.awayScore = 0;
             matchState.stats = { homePossFrames: 1, awayPossFrames: 1, homeShots: 0, awayShots: 0, homePasses: 0, awayPasses: 0 };
 
+            matchState.expMap = buildExpMap();
             resetSubs();
             createPlayers();
             resetPositionsForKickoff('home');
@@ -3534,6 +3611,20 @@
         function computeAssists(L) {
             return tally(L, m => (m.players || []).filter(p => p.a > 0).map(p => ({ t: p.t, n: p.n, v: p.a })));
         }
+        function computeSaves(L) { return tally(L, m => (m.players || []).filter(p => p.sv > 0).map(p => ({ t: p.t, n: p.n, v: p.sv }))); }
+        function computeDefense(L) { return tally(L, m => (m.players || []).filter(p => p.df > 0).map(p => ({ t: p.t, n: p.n, v: p.df }))); }
+        function computePossession(L) { return tally(L, m => (m.players || []).filter(p => p.pz > 0).map(p => ({ t: p.t, n: p.n, v: p.pz }))); }
+        function computeExperience(L) {
+            const map = {};
+            L.matches.forEach(m => (m.players || []).forEach(p => {
+                if (!(p.mn > 0)) return;
+                const tid = p.t === 'home' ? m.home : m.away;
+                const k = p.n + '|' + p.r;
+                const e = map[k] || (map[k] = { tid, name: p.n, role: p.r, v: 0 });
+                e.v += p.mn; e.tid = tid;
+            }));
+            return Object.values(map).filter(e => e.v > 0).sort((a, b) => b.v - a.v || a.name.localeCompare(b.name, 'tr'));
+        }
         function computeMotm(L) {
             return tally(L, m => m.motm ? [{ t: m.motm.t, n: m.motm.n, v: 1 }] : []);
         }
@@ -3554,6 +3645,7 @@
                     pattern: (/^#[0-9a-f]{6}$/i.test(t.color2) && ['half', 'stripe', 'hoop'].includes(t.pattern)) ? t.pattern : '',
                     logo: (typeof t.logo === 'string' && t.logo.indexOf('data:image/') === 0) ? t.logo : null,
                     names,
+                    captain: (typeof t.captain === 'string' && t.captain) ? t.captain.slice(0, 10) : null,
                     bench: (Array.isArray(t.bench) ? t.bench : []).map(x => String(x).trim().slice(0, 10)).filter(Boolean).slice(0, 12)
                 };
             });
@@ -3580,7 +3672,11 @@
                     a: Math.max(0, parseInt(p.a, 10) || 0),
                     og: Math.max(0, parseInt(p.og, 10) || 0),
                     oa: Math.max(0, parseInt(p.oa, 10) || 0),
-                    rt: Math.max(0, Math.min(10, Number(p.rt) || 0))
+                    rt: Math.max(0, Math.min(10, Number(p.rt) || 0)),
+                    sv: Math.max(0, parseInt(p.sv, 10) || 0),
+                    df: Math.max(0, parseInt(p.df, 10) || 0),
+                    pz: Math.max(0, Math.min(99999, Number(p.pz) || 0)),
+                    mn: Math.max(0, Math.min(99999, Number(p.mn) || 0))
                 })),
                 motm: (m.motm && m.motm.n) ? {
                     t: m.motm.t === 'away' ? 'away' : 'home',
@@ -3757,6 +3853,52 @@
             if (saveLeague(L)) toast((ex ? '✅ ' + name + ' güncellendi' : '✅ ' + name + ' kaydedildi') + ' (' + activeLeague(loadAll()).name + ')');
         }
 
+        // ---- Kadro seçimi (YZ teknik direktör) ve kaptan ----
+        const XI_ROLES = ['Kaleci', 'Defans', 'Orta Saha', 'Forvet'];
+        // Geçmiş maç puanları: isim|mevki ve sadece isim. Hiç maçı yoksa nötr 6.0 kabul edilir.
+        function leagueFormMap(lid) {
+            const byRole = {}, byName = {};
+            const L = loadAll().leagues.find(l => l.id === lid);
+            if (!L) return { byRole, byName };
+            L.matches.forEach(m => (m.players || []).forEach(p => {
+                if (!(p.rt > 0)) return;
+                const k = p.n + '|' + p.r;
+                (byRole[k] = byRole[k] || [0, 0]); byRole[k][0] += p.rt; byRole[k][1]++;
+                (byName[p.n] = byName[p.n] || [0, 0]); byName[p.n][0] += p.rt; byName[p.n][1]++;
+            }));
+            return { byRole, byName };
+        }
+        // Bayesçi ortalama: az maçlı oyuncu 6.0'a çekilir
+        function formScore(f) { return ((f ? f[0] : 0) + 12) / ((f ? f[1] : 0) + 2); }
+        // En yüksek toplam puanlı 4'lü (her mevkiye farklı oyuncu). Kadro küçükse boş mevki kalabilir.
+        function aiPickXI(squad, form) {
+            const cand = squad.slice(0, 14);
+            let best = {}, bestSum = -1;
+            const rec = (ri, used, sum, cur) => {
+                if (ri === XI_ROLES.length) {
+                    if (sum > bestSum) { bestSum = sum; best = Object.assign({}, cur); }
+                    return;
+                }
+                const r = XI_ROLES[ri];
+                cand.forEach(n => {
+                    if (used.has(n)) return;
+                    used.add(n); cur[r] = n;
+                    rec(ri + 1, used, sum + formScore(form.byRole[n + '|' + r]), cur);
+                    used.delete(n); delete cur[r];
+                });
+                rec(ri + 1, used, sum, cur); // mevki boş kalabilir (kadro küçükse)
+            };
+            rec(0, new Set(), 0, {});
+            return best;
+        }
+        function matchPlayerRecords() {
+            const { ents, best } = computeRatings();
+            const r1 = x => Math.round(x * 10) / 10;
+            return {
+                players: ents.map(e => ({ t: e.team, n: e.name, r: e.role, g: e.g, a: e.a, og: e.og, oa: e.oa, rt: r1(e.rating), sv: e.sv, df: e.df, pz: r1(e.poz), mn: r1(e.mins) })),
+                motm: best ? { t: best.team, n: best.name, r: best.role, rt: r1(best.rating) } : null
+            };
+        }
         function recordLeagueMatch() {
             const note = document.getElementById('ftLeagueNote');
             const lg = matchState.leagueGame;
@@ -3770,13 +3912,11 @@
                 note.classList.remove('hidden');
                 return;
             }
-            const { ents, best } = computeRatings();
             L.matches.push({
                 id: uid(), home: lg.home, away: lg.away,
                 hg: matchState.homeScore, ag: matchState.awayScore,
                 date: Date.now(), scorers: matchState.scorers.slice(),
-                players: ents.map(e => ({ t: e.team, n: e.name, r: e.role, g: e.g, a: e.a, og: e.og, oa: e.oa, rt: Math.round(e.rating * 10) / 10 })),
-                motm: best ? { t: best.team, n: best.name, r: best.role, rt: Math.round(best.rating * 10) / 10 } : null,
+                ...matchPlayerRecords(),
                 subs: (matchState.subsLog || []).slice(0, 12)
             });
             let ok = saveAll(A, true);
@@ -3872,7 +4012,7 @@
                     '<select data-coach="' + sd + '" class="px-2 py-1.5 rounded-lg bg-slate-800 border border-slate-700 text-[11px] font-bold text-white">' +
                     '<option value="me"' + (coachSel[sd] === 'me' ? ' selected' : '') + '>🧑 Ben (planlı değişiklik)</option>' +
                     '<option value="ai"' + (coachSel[sd] === 'ai' ? ' selected' : '') + '>🤖 Yapay zeka</option></select></div>').join('') +
-                '<div class="text-[10px] text-slate-500">🤖 seçilirse yapay zeka maç içi puanı düşük ya da etkisiz oyuncuyu takımın yedek kadrosundan biriyle değiştirir (en fazla 3, en iyi yedek önce). Yedeği olmayan takımda değişiklik yapılmaz.</div></div>';
+                '<div class="text-[10px] text-slate-500">🤖 seçilirse yapay zeka maç içi puanı düşük ya da etkisiz oyuncuyu takımın yedek kadrosundan biriyle değiştirir (en fazla 3, en iyi yedek önce). Yedeği olmayan takımda değişiklik yapılmaz. Yapay zeka ayrıca maça başlarken ilk 11’i (kadrodan) geçmiş maç puanlarına göre seçer ve kaptanı belirler. Bu takımda kurulum ekranındaki isimler kadro havuzu olur.</div></div>';
         }
 
         // ---- Turnuva (eleme usulü): seçilen takımlar herhangi liglerden gelebilir ----
@@ -3997,7 +4137,7 @@
             });
             const pseudo = { teams: Object.values(c.teams), matches: [] };
             c.rounds.forEach(r => r.forEach(m => { if (m.done && !m.bye) pseudo.matches.push({ home: m.a, away: m.b, hg: m.ga, ag: m.gb, scorers: m.scorers || [], players: m.players || [], motm: m.motm || null }); }));
-            h += '<div><div class="text-[11px] font-extrabold uppercase tracking-wider text-amber-300 mb-1.5 px-1 mt-1">🏅 Turnuva Krallıkları</div>' + viewScorers(pseudo) + '</div>';
+            h += '<div><div class="text-[11px] font-extrabold uppercase tracking-wider text-amber-300 mb-1.5 px-1 mt-1">🏅 Turnuva Krallıkları</div>' + viewScorers(pseudo, { noExp: true }) + '</div>';
             h += '<button type="button" data-act="cupend" class="w-full py-2 rounded-xl bg-slate-800 border border-slate-700 text-[11px] font-bold text-red-400 cursor-pointer">🗑️ Turnuvayı kapat / yeni turnuva</button></div>';
             return h;
         }
@@ -4019,9 +4159,7 @@
             } else m.w = m.ga > m.gb ? m.a : m.b;
             m.done = true;
             m.scorers = matchState.scorers.map(x => ({ team: x.team, name: x.name, own: !!x.own, min: x.min }));
-            const rt = computeRatings();
-            m.players = rt.ents.map(e => ({ t: e.team, n: e.name, r: e.role, g: e.g, a: e.a, og: e.og, oa: e.oa, rt: Math.round(e.rating * 10) / 10 }));
-            m.motm = rt.best ? { t: rt.best.team, n: rt.best.name, r: rt.best.role, rt: Math.round(rt.best.rating * 10) / 10 } : null;
+            Object.assign(m, matchPlayerRecords());
             cupFill(c);
             if (c.champion) txt += ' · 🏆 Şampiyon: ' + c.teams[c.champion].name;
             matchState.recorded = saveCup(c);
@@ -4043,12 +4181,14 @@
                 '<button type="button" data-act="play" class="w-full py-3.5 rounded-2xl bg-gradient-to-r from-emerald-500 to-teal-500 text-slate-950 font-black text-sm cursor-pointer">⚽ LİG MAÇINI BAŞLAT</button></div>';
         }
 
-        function viewScorers(L) {
+        function viewScorers(L, opt) {
+            const withExp = !(opt && opt.noExp);
             const byId = {};
             L.teams.forEach(t => byId[t.id] = t);
             const goals = computeScorers(L).map(s => ({ tid: s.tid, name: s.name, v: s.g }));
-            const sec = (title, list, icon, color, empty) => {
+            const sec = (title, list, icon, color, empty, note) => {
                 let h = '<div class="mb-3"><div class="text-[11px] font-extrabold uppercase tracking-wider text-slate-400 mb-1.5 px-1">' + title + '</div>' +
+                    (note ? '<div class="text-[10px] text-slate-500 px-1 mb-1">' + note + '</div>' : '') +
                     '<div class="rounded-2xl bg-slate-900/90 border border-slate-800 overflow-hidden">';
                 const rows = list.filter(s => byId[s.tid]).slice(0, 10);
                 if (!rows.length) h += '<div class="px-3 py-3 text-[11px] text-slate-500">' + empty + '</div>';
@@ -4056,16 +4196,24 @@
                     const t = byId[s.tid];
                     h += '<div class="flex items-center gap-2 px-3 py-2 border-t border-slate-800 first:border-t-0">' +
                         '<span class="w-5 text-xs font-bold text-slate-400">' + (i + 1) + '</span>' + teamBadge(t, 22) +
-                        '<div class="flex-1 min-w-0"><div class="text-xs font-bold text-white truncate">' + esc(s.name) + '</div><div class="text-[10px] text-slate-400 truncate">' + esc(t.name) + '</div></div>' +
+                        '<div class="flex-1 min-w-0"><div class="text-xs font-bold text-white truncate">' + esc(s.name) + '</div><div class="text-[10px] text-slate-400 truncate">' + esc(s.sub || t.name) + '</div></div>' +
                         '<span class="text-sm font-black ' + color + '">' + s.v + ' ' + icon + '</span></div>';
                 });
                 return h + '</div></div>';
             };
-            return sec('🥇 Gol Krallığı', goals, '⚽', 'text-amber-400', 'Henüz atılan gol yok.') +
-                sec('🅰️ Asist Krallığı', computeAssists(L).map(s => ({ tid: s.tid, name: s.name, v: s.v })), '🅰️', 'text-sky-400', 'Henüz asist yok.') +
-                sec('⭐ Maçın Adamı', computeMotm(L).map(s => ({ tid: s.tid, name: s.name, v: s.v })), '⭐', 'text-yellow-300', 'Henüz maçın adamı yok.') +
-                sec('🧤 Gol Yemeyen Maç (Kaleci)', computeCleanSheets(L).map(s => ({ tid: s.tid, name: s.name, v: s.v })), '🧤', 'text-emerald-400', 'Henüz gol yemeyen maç yok.') +
-                '<div class="text-[10px] text-slate-500 px-1">Asist, maçın adamı ve gol yemeyen maç bu güncellemeden sonra oynanan lig maçlarından hesaplanır.</div>';
+            const top = (list, fn) => list.map(fn);
+            let h = sec('🥇 Gol Krallığı', goals, '⚽', 'text-amber-400', 'Henüz atılan gol yok.') +
+                sec('🅰️ Asist Krallığı', top(computeAssists(L), s => ({ tid: s.tid, name: s.name, v: s.v })), '🅰️', 'text-sky-400', 'Henüz asist yok.') +
+                sec('🧤 Kurtarış Krallığı', top(computeSaves(L), s => ({ tid: s.tid, name: s.name, v: s.v })), '🧤', 'text-emerald-400', 'Henüz kurtarış yok.', 'Tüm oyuncular: rakip şutundan sonra kendi ceza sahasında topa ilk dokunan.') +
+                sec('🛡️ Savunma Krallığı', top(computeDefense(L), s => ({ tid: s.tid, name: s.name, v: s.v })), '🛡️', 'text-cyan-300', 'Henüz savunma aksiyonu yok.', 'Rakipten topu alıp kendi yarısında oynayan oyuncular.') +
+                sec('⏱️ Top Hakimiyeti', top(computePossession(L), s => ({ tid: s.tid, name: s.name, v: Math.round(s.v) + ' sn' })), '⏱️', 'text-violet-300', 'Henüz top hakimiyeti yok.', 'Topa en yakın oyuncunun toplam süresi.') +
+                sec('⭐ Maçın Adamı', top(computeMotm(L), s => ({ tid: s.tid, name: s.name, v: s.v })), '⭐', 'text-yellow-300', 'Henüz maçın adamı yok.') +
+                sec('🧤 Gol Yemeyen Maç (Kaleci)', top(computeCleanSheets(L), s => ({ tid: s.tid, name: s.name, v: s.v })), '🧤', 'text-emerald-400', 'Henüz gol yemeyen maç yok.');
+            if (withExp) {
+                const ex = computeExperience(L).map(s => ({ tid: s.tid, name: s.name, v: Math.round(s.v) + ' dk', sub: s.role + ' · ' + expLevel(s.v) + ' · bonus +' + (Math.min(0.06, s.v / 25000) * 100).toFixed(1) + '%' }));
+                h += sec('🎓 Tecrübe Tablosu (mevki bazlı)', ex, '', 'text-orange-300', 'Henüz tecrübe birikmedi.', 'Her mevkide oynanan dakika birikir. 1500 dk (≈16 maç) ivme ve zekada en fazla %6 bonus verir (doğrusal artar). Bonus lig maçlarında uygulanır.');
+            }
+            return h + '<div class="text-[10px] text-slate-500 px-1">Krallıklar bu güncellemeden sonra oynanan maçlardan hesaplanır. Asist, maçın adamı ve gol yemeyen maç bu güncellemeden öncekilerde yoksa eksik kalabilir.</div>';
         }
 
         function viewHistory(L) {
@@ -4113,6 +4261,7 @@
                         '<div class="text-[10px] text-slate-400 truncate">' + ROLES.map(r => ROLE_ICONS[r] + ' ' + esc((t.names && t.names[r]) || r)).join(' · ') + '</div>' +
                         ((t.bench && t.bench.length) ? '<div class="text-[10px] text-slate-500 mt-0.5">🪑 Yedek (' + t.bench.length + '): ' + t.bench.map(esc).join(', ') + '</div>' : '') +
                         '</div></div>' +
+                        (() => { const sq = Array.from(new Set(ROLES.map(r => (t.names && t.names[r]) || r).concat(t.bench || []))); return '<div class="flex items-center gap-2 mt-2"><span class="text-[10px] text-slate-400 whitespace-nowrap">🎖️ Kaptan</span><select data-cap="' + esc(t.id) + '" class="flex-1 min-w-0 px-2 py-1 rounded-lg bg-slate-800 border border-slate-700 text-[11px] font-bold text-white"><option value="">Yok</option>' + sq.map(n => '<option' + (n === t.captain ? ' selected' : '') + '>' + esc(n) + '</option>').join('') + '</select></div>'; })() +
                         '<div class="grid grid-cols-2 gap-2 mt-2">' +
                         '<button type="button" data-act="editteam" data-id="' + esc(t.id) + '" class="py-1.5 rounded-lg bg-slate-800 border border-slate-700 text-[11px] font-bold text-sky-300 cursor-pointer">✏️ Düzenle</button>' +
                         '<button type="button" data-act="delteam" data-id="' + esc(t.id) + '" class="py-1.5 rounded-lg bg-slate-800 border border-slate-700 text-[11px] font-bold text-red-400 cursor-pointer">🗑️ Sil</button></div></div>';
@@ -4175,7 +4324,8 @@
             pendingLeague = {
                 home: h.id, away: a.id, league: loadAll().active, cup: cup || null,
                 ai: { home: coachSel.home === 'ai', away: coachSel.away === 'ai' },
-                bench: { home: (h.bench || []).slice(), away: (a.bench || []).slice() }
+                bench: { home: (h.bench || []).slice(), away: (a.bench || []).slice() },
+                captain: { home: h.captain || null, away: a.captain || null }
             };
             leagueScreen.classList.add('hidden');
             document.getElementById('startMatchBtn').click();
@@ -4343,6 +4493,12 @@
         }));
 
         leagueBody.addEventListener('change', e => {
+            if (e.target.hasAttribute && e.target.hasAttribute('data-cap')) {
+                const L = loadLeague();
+                const t = L.teams.find(x => x.id === e.target.getAttribute('data-cap'));
+                if (t) { t.captain = e.target.value || null; saveLeague(L); toast('🎖️ Kaptan: ' + (t.captain || 'yok')); }
+                return;
+            }
             const sel = e.target.getAttribute && e.target.getAttribute('data-sel');
             if (sel) leagueSel[sel] = e.target.value;
             const cp = e.target.getAttribute && e.target.getAttribute('data-cup-pick');
