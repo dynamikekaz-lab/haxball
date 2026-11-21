@@ -404,6 +404,7 @@
                 <div class="px-3 py-1 rounded-full bg-red-600/90 text-white text-[11px] font-black tracking-wider animate-pulse">🎬 TEKRAR</div>
                 <button id="replaySkipBtn" type="button" class="px-3 py-1 rounded-full bg-slate-900/90 border border-slate-600 text-[11px] font-bold text-slate-200 cursor-pointer">⏭ Geç</button>
             </div>
+            <button id="simSpeedBtn" type="button" title="İzleme hızı (dokun: değiştir)" class="absolute top-3 right-3 z-20 px-3 py-1 rounded-full bg-slate-900/90 border border-amber-400/50 text-[11px] font-black text-amber-300 cursor-pointer">⏩ 1×</button>
             <div id="halfToast" class="pointer-events-none absolute top-3 left-1/2 z-20 -translate-x-1/2 rounded-full bg-slate-900/90 border border-sky-400/60 px-3 py-1 text-[11px] font-bold text-sky-300 shadow-lg transition-opacity duration-500" style="opacity:0"></div>
             <div id="kickoffCount" class="hidden pointer-events-none absolute inset-0 flex items-center justify-center z-20">
                 <div id="kickoffCountNum" class="text-7xl font-black text-white" style="text-shadow:0 0 18px rgba(16,185,129,.9),0 3px 0 rgba(2,6,23,.8)">3</div>
@@ -4985,11 +4986,13 @@
             simSpeed = [1, 2, 4, 8, 12, 20].includes(v) ? v : 1;
             simSpeedSel.value = String(simSpeed);
             const s2 = document.getElementById('simSpeedSel2'); if (s2) s2.value = String(simSpeed);
+            const sb = document.getElementById('simSpeedBtn'); if (sb) sb.textContent = '⏩ ' + simSpeed + '×';
             try { localStorage.setItem('haxballSimSpeed', String(simSpeed)); } catch (e) {}
             const info = document.getElementById('simSpeedInfo');
             if (info) info.textContent = simSpeed > 1 ? ('Maç ' + fmtDur(TOTAL_REAL_SECONDS) + ' sürecek şekilde oynanır, yaklaşık ' + fmtDur(Math.max(1, Math.round(TOTAL_REAL_SECONDS / simSpeed))) + ' içinde izlersin (+ gol tekrarları).') : '';
         }
         simSpeedSel.addEventListener('change', () => setSimSpeed(parseInt(simSpeedSel.value, 10)));
+        document.getElementById('simSpeedBtn').addEventListener('click', () => { const L = [1, 2, 4, 8, 12, 20]; setSimSpeed(L[(L.indexOf(simSpeed) + 1) % L.length]); });
         document.getElementById('simSpeedSel2').addEventListener('change', e => setSimSpeed(parseInt(e.target.value, 10)));
         const durSlider = document.getElementById('durSlider');
         function fmtDur(sec) {
