@@ -913,9 +913,14 @@
             return lg ? expMapFor(lg.league) : {};
         }
         // Mevki kuralı: oyuncu sadece tecrübe kazandığı mevkilerde oynayabilir. Hiç maçı yoksa her mevkide oynayabilir.
+        // Bir mevkiye ancak o mevkide toplam dakikasının en az %20'sini oynamışsa konabilir (bir kereliğine kaleye geçmek yetmez).
+        // Hiç tecrübesi olmayan oyuncu her mevkiye konabilir.
+        const ROLE_MIN_SHARE = 0.2;
         function allowedRoles(name, em) {
-            const r = XI_ROLES.filter(x => ((em || {})[name + '|' + x] || 0) > 0);
-            return r.length ? r : XI_ROLES.slice();
+            const mins = XI_ROLES.map(x => ((em || {})[name + '|' + x] || 0));
+            const total = mins.reduce((a, b) => a + b, 0);
+            if (!(total > 0)) return XI_ROLES.slice();
+            return XI_ROLES.filter((x, i) => mins[i] >= total * ROLE_MIN_SHARE);
         }
         function expMapFor(lid) {
             const map = {};
