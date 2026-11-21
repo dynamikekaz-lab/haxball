@@ -3951,21 +3951,22 @@
         // Geçmiş maç puanları: isim|mevki ve sadece isim. Hiç maçı yoksa nötr 6.0 kabul edilir.
         function leagueFormMap(lid) {
             const byRole = {}, byName = {};
-            const L = loadAll().leagues.find(l => l.id === lid);
-            if (!L) return { byRole, byName };
-            L.matches.forEach(m => (m.players || []).forEach(p => {
+            // Form TÜM liglerin maçlarından hesaplanır: başka ligde iyi oynayan oyuncu yeni ligde de öne geçer.
+            const all = loadAll().leagues;
+            if (!all.length) return { byRole, byName };
+            all.forEach(L => (L.matches || []).forEach(m => (m.players || []).forEach(p => {
                 if (!(p.rt > 0)) return;
                 const k = p.n + '|' + p.r;
                 (byRole[k] = byRole[k] || [0, 0]); byRole[k][0] += p.rt; byRole[k][1]++;
                 (byName[p.n] = byName[p.n] || [0, 0]); byName[p.n][0] += p.rt; byName[p.n][1]++;
-            }));
+            })));
             return { byRole, byName };
         }
         // Bayesçi ortalama: az maçlı oyuncu 6.0'a çekilir
         function formScore(f) { return ((f ? f[0] : 0) + 12) / ((f ? f[1] : 0) + 2); }
         // En yüksek toplam puanlı 4'lü (her mevkiye farklı oyuncu). Kadro küçükse boş mevki kalabilir.
         function aiPickXI(squad, form, em) {
-            const cand = squad.slice(0, 14);
+            const cand = squad.slice(0, 16);
             let best = {}, bestSum = -1;
             const rec = (ri, used, sum, cur) => {
                 if (ri === XI_ROLES.length) {
