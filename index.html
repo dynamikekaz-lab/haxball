@@ -3734,7 +3734,8 @@
                     o: String(x.o).slice(0, 10), i: String(x.i).slice(0, 10), ai: !!x.ai
                 }))
             }));
-            return { teams, matches };
+            const pool = (Array.isArray(o.pool) ? o.pool : []).map(x => String(x).trim().slice(0, 10)).filter(Boolean).slice(0, 300);
+            return { teams, matches, pool };
         }
         // PURE-END
 
@@ -4437,6 +4438,36 @@
             });
             return h + '<div class="text-[10px] text-slate-500">Değeri değiştirdikten sonra alandan çıkman yeterli. Değer isme bağlıdır; aynı isim tüm takımlarda aynı değeri alır.</div></div>';
         }
+        // OYUNCU HAVUZU: oluşturulan oyuncular kayıtlı kalır, takımlar arası transfer edilir.
+        function allPlayers(L) {
+            return Array.from(new Set((L.pool || []).concat(...L.teams.map(squadNames)))).sort((a, b) => a.localeCompare(b, 'tr'));
+        }
+        function teamOfPlayer(L, n) { return L.teams.find(t => squadNames(t).includes(n)); }
+        function playersHtml(L) {
+            const list = allPlayers(L);
+            let h = '<div class="rounded-2xl bg-slate-900/90 border border-slate-800 p-3 mt-3 space-y-2">' +
+                '<div class="text-[11px] font-semibold text-slate-400">👥 Oyuncular (' + list.length + ') · transfer için takımı değiştir</div>' +
+                '<div class="flex gap-2"><input id="newPlayerName" maxlength="10" placeholder="Yeni oyuncu adı" class="flex-1 min-w-0 px-3 py-2 rounded-lg bg-slate-800 border border-slate-700 text-xs font-bold text-white">' +
+                '<button type="button" data-act="addplayer" class="px-3 py-2 rounded-lg bg-slate-800 border border-slate-700 text-[11px] font-bold text-emerald-300 cursor-pointer">➕ Oluştur</button></div>';
+            list.forEach(n => {
+                const cur = teamOfPlayer(L, n);
+                h += '<div class="flex items-center gap-2"><span class="flex-1 min-w-0 text-xs font-bold text-white truncate">' + esc(n) + '</span>' +
+                    '<select data-xfer="' + esc(n) + '" class="w-32 px-2 py-1 rounded-lg bg-slate-800 border border-slate-700 text-[11px] font-bold text-white"><option value="">Serbest</option>' +
+                    L.teams.map(t => '<option value="' + esc(t.id) + '"' + (cur && cur.id === t.id ? ' selected' : '') + '>' + esc(t.name) + '</option>').join('') + '</select>' +
+                    (cur ? '' : '<button type="button" data-act="delplayer" data-id="' + esc(n) + '" class="text-[11px] text-red-400 cursor-pointer">🗑️</button>') + '</div>';
+            });
+            return h + '</div>';
+        }
+        function transferPlayer(L, n, toId) {
+            L.teams.forEach(t => {
+                ROLES.forEach(r => { if (t.names && t.names[r] === n) t.names[r] = r; });
+                if (t.bench) t.bench = t.bench.filter(x => x !== n);
+                if (t.captain === n) t.captain = null;
+            });
+            (L.pool = L.pool || []).includes(n) || L.pool.push(n);
+            const to = L.teams.find(t => t.id === toId);
+            if (to) { to.bench = (to.bench || []).concat(n).slice(0, 12); }
+        }
         function viewTeams(L) {
             let h = '';
             if (!L.teams.length) h += emptyBox('Kayıtlı takım yok.');
@@ -4457,6 +4488,7 @@
                 });
                 h += '</div>';
             }
+            h += playersHtml(L);
             const A2 = loadAll();
             const others = A2.leagues.filter(l => l.id !== A2.active && l.teams.length);
             if (others.length) {
@@ -4490,6 +4522,13 @@
         function renderLeague() {
             syncZones();
             const A = loadAll();
+            (() => {
+                let dl = document.getElementById('poolList');
+                if (!dl) { dl = document.createElement('datalist'); dl.id = 'poolList'; document.body.appendChild(dl); }
+                const LL = loadLeague();
+                dl.innerHTML = allPlayers(LL).map(n => '<option value="' + esc(n) + '">').join('');
+                document.querySelectorAll('input[id*="Player_"], input[id$="Bench"]').forEach(i => { if (i.id.indexOf('Player_') > -1) i.setAttribute('list', 'poolList'); });
+            })();
             document.getElementById('leagueSelect').innerHTML = A.leagues.map(l =>
                 '<option value="' + esc(l.id) + '"' + (l.id === A.active ? ' selected' : '') + '>🏆 ' + esc(l.name) + '</option>').join('');
             const L = loadLeague();
@@ -4715,6 +4754,13 @@
                 renderLeague();
                 return;
             }
+            if (e.target.hasAttribute && e.target.hasAttribute('data-xfer')) {
+                const L = loadLeague(), n = e.target.getAttribute('data-xfer'), to = L.teams.find(x => x.id === e.target.value);
+                if (to && (to.bench || []).length >= 12 && !squadNames(to).includes(n)) { toast('⚠️ Yedek kadro dolu (12)'); renderLeague(); return; }
+                transferPlayer(L, n, e.target.value);
+                saveLeague(L); renderLeague(); toast('🔁 ' + n + ' → ' + (to ? to.name : 'Serbest'));
+                return;
+            }
             if (e.target.hasAttribute && e.target.hasAttribute('data-cap')) {
                 const L = loadLeague();
                 const t = L.teams.find(x => x.id === e.target.getAttribute('data-cap'));
@@ -4799,6 +4845,13 @@
                     saveLeague(L);
                     renderLeague();
                 }
+            } else if (act === 'addplayer') {
+                const inp = document.getElementById('newPlayerName'), n = (inp.value || '').trim().slice(0, 10);
+                if (!n || DEFAULT_ROLE_NAMES.has(n.toLocaleLowerCase('tr'))) { toast('⚠️ Geçerli bir isim yaz'); return; }
+                if (allPlayers(L).includes(n)) { toast('⚠️ Bu oyuncu zaten var'); return; }
+                (L.pool = L.pool || []).push(n); saveLeague(L); renderLeague(); toast('➕ ' + n + ' oluşturuldu');
+            } else if (act === 'delplayer') {
+                L.pool = (L.pool || []).filter(x => x !== id); saveLeague(L); renderLeague();
             } else if (act === 'delteam') {
                 const t = L.teams.find(x => x.id === id);
                 if (t && confirm(t.name + ' silinsin mi? Bu takımın tüm lig maçları da silinir.')) {
@@ -4865,7 +4918,7 @@
                 if (raw && Array.isArray(raw.leagues)) {
                     const leagues = raw.leagues.map(l => {
                         const d = sanitizeLeague(l);
-                        return d ? { id: String((l && l.id) || uid()), name: String((l && l.name) || 'Lig').slice(0, 24), teams: d.teams, matches: d.matches, zones: Array.isArray(l.zones) ? sanitizeZones(l.zones) : undefined, values: sanitizeValues(l.values) } : null;
+                        return d ? { id: String((l && l.id) || uid()), name: String((l && l.name) || 'Lig').slice(0, 24), teams: d.teams, matches: d.matches, pool: d.pool, zones: Array.isArray(l.zones) ? sanitizeZones(l.zones) : undefined, values: sanitizeValues(l.values) } : null;
                     }).filter(Boolean);
                     if (!leagues.length) { toast('⚠️ Geçersiz yedek dosyası'); return; }
                     if (confirm(leagues.length + ' lig yüklenecek. Mevcut TÜM ligler değiştirilsin mi?')) {
