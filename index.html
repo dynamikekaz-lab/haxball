@@ -4847,6 +4847,30 @@
                 addPool(La, o.inn);
                 return true;
             }
+            if (o.kind === 'bid') {
+                if ((ta.bench || []).length >= 12) return false;
+                const Ls = A.leagues.find(l => l.id === o.bl);
+                if (!Ls) return false;
+                let ts = null;
+                if (o.b) {
+                    ts = Ls.teams.find(t => t.id === o.b);
+                    if (!ts || ts === ta || !squadNames(ts).includes(o.inn)) return false;
+                } else if (A.leagues.some(l => l.teams.some(t => squadNames(t).includes(o.inn)))) return false;
+                if (Number.isFinite(ta.budget) && o.price > ta.budget) return false;
+                if (Number.isFinite(ta.budget)) ta.budget = Math.round((ta.budget - o.price) * 10) / 10;
+                if (ts && Number.isFinite(ts.budget)) ts.budget = Math.round((ts.budget + o.price) * 10) / 10;
+                Ls.teams.forEach(t => {
+                    ROLES.forEach(r => { if (t.names && t.names[r] === o.inn) t.names[r] = r; });
+                    if (t.bench) t.bench = t.bench.filter(x => x !== o.inn);
+                    if (t.captain === o.inn) t.captain = null;
+                });
+                carryPlayer(Ls, La, o.inn);
+                La.values = La.values || {};
+                La.values[o.inn] = o.price;
+                addPool(La, o.inn);
+                ta.bench = (ta.bench || []).concat(o.inn);
+                return true;
+            }
             if (!squadNames(ta).includes(o.out)) return false;
             let Lb, tb = null;
             if (o.kind === 'swap') {
@@ -4883,6 +4907,81 @@
             to.bench = (to.bench || []).concat(n);
             return true;
         }
+
+        // 🏷️ TRANSFER YARIŞI: istediğin oyuncu için takımlar açık artırmayla yarışır; en yüksek teklif veren alır. Sen de bir takımınla katılabilirsin.
+        let bidForm = { p: '', my: '', amt: '' };
+        function decodeBidPlayer(A, val) {
+            const i = String(val || '').indexOf('|');
+            if (i < 1) return null;
+            const l = A.leagues.find(x => x.id === val.slice(0, i));
+            if (!l) return null;
+            let n; try { n = decodeURIComponent(val.slice(i + 1)); } catch (e) { return null; }
+            const t = l.teams.find(x => squadNames(x).includes(n)) || null;
+            if (!t && !allPlayers(l).includes(n)) return null;
+            return { l, t, n };
+        }
+        function runAuction(A, hold, my, maxBid) {
+            const f = leagueFormMap(), ps = formScore(f.byName[hold.n]);
+            const mv0 = mvOf(hold.l, hold.n);
+            const start = Math.max(0.5, Math.round(mv0 * 2) / 2);
+            const step = Math.max(0.5, Math.round(mv0 * 0.05 * 2) / 2);
+            const bidders = [];
+            allTeamsFlat(A).forEach(({ l, t }) => {
+                if (hold.t && t === hold.t) return;
+                if ((t.bench || []).length >= 12) return;
+                const isMy = !!(my && my.t === t);
+                let ceil;
+                if (isMy) ceil = maxBid;
+                else {
+                    if (Math.random() < 0.3) return;   // her takım ilgilenmez
+                    ceil = start * (0.9 + Math.random() * 0.7) * (1 + (ps - 6) * 0.05);
+                }
+                if (Number.isFinite(t.budget)) ceil = Math.min(ceil, t.budget);
+                ceil = Math.floor(ceil * 2) / 2;
+                if (ceil >= start) bidders.push({ l, t, ceil, isMy });
+            });
+            if (!bidders.length) return null;
+            let price = start - step, leader = null;
+            const log = [];
+            for (let guard = 0; guard < 500; guard++) {
+                let raised = false;
+                shuffleArr(bidders.slice()).forEach(b => {
+                    if (b === leader) return;
+                    const np = Math.round((price + step) * 2) / 2;
+                    if (b.ceil >= np) { price = np; leader = b; log.push({ n: b.t.name, p: np }); raised = true; }
+                });
+                if (!raised) break;
+            }
+            if (!leader) return null;
+            return { id: uid(), kind: 'bid', a: leader.t.id, al: leader.l.id, b: hold.t ? hold.t.id : null, bl: hold.l.id, inn: hold.n, price, my: leader.isMy, log: log.slice(-10) };
+        }
+        function bidHtml() {
+            const A = loadAll(), multi = A.leagues.length > 1;
+            const sel = 'w-full mt-1 px-2 py-1.5 rounded-lg bg-slate-950 border border-slate-700 text-xs font-bold text-white';
+            const opt = (l, n) => { const v = l.id + '|' + encodeURIComponent(n); return '<option value="' + esc(v) + '"' + (bidForm.p === v ? ' selected' : '') + '>' + esc(n) + ' · ' + mvOf(l, n) + 'M</option>'; };
+            let po = '<option value="">— Oyuncu seç —</option>', mo = '<option value="">— Yok (sadece YZ takımlar) —</option>';
+            A.leagues.forEach(l => {
+                const rostered = new Set();
+                l.teams.forEach(t => {
+                    const sq = squadNames(t);
+                    sq.forEach(n => rostered.add(n));
+                    if (sq.length) po += '<optgroup label="' + esc(t.name + (multi ? ' (' + l.name + ')' : '')) + '">' + sq.map(n => opt(l, n)).join('') + '</optgroup>';
+                    const v = l.id + ':' + t.id;
+                    mo += '<option value="' + esc(v) + '"' + (bidForm.my === v ? ' selected' : '') + '>' + esc(t.name + (multi ? ' (' + l.name + ')' : '')) + (Number.isFinite(t.budget) ? ' · ' + t.budget + 'M' : '') + '</option>';
+                });
+                const free = allPlayers(l).filter(n => !rostered.has(n));
+                if (free.length) po += '<optgroup label="Serbest' + (multi ? ' (' + esc(l.name) + ')' : '') + '">' + free.map(n => opt(l, n)).join('') + '</optgroup>';
+            });
+            return '<div class="rounded-2xl bg-slate-900/90 border border-slate-800 p-3 mt-3 space-y-2">' +
+                '<div class="text-[11px] font-semibold text-slate-400">🏷️ Transfer Yarışı · kendi transferin</div>' +
+                '<label class="block text-[10px] text-slate-400">Oyuncu<select data-bidf="p" class="' + sel + '">' + po + '</select></label>' +
+                '<label class="block text-[10px] text-slate-400">Benim takımım (isteğe bağlı)<select data-bidf="my" class="' + sel + '">' + mo + '</select></label>' +
+                '<label class="block text-[10px] text-slate-400">Teklifim (M) · yarışta en çok vereceğim, direkt alımda ödeyeceğim tutar<input type="number" min="0" step="0.5" data-bidf="amt" value="' + esc(bidForm.amt) + '" placeholder="0" class="' + sel + '"></label>' +
+                '<div class="grid grid-cols-2 gap-2">' +
+                '<button type="button" data-act="bidstart" class="py-2 rounded-lg bg-slate-800 border border-slate-700 text-[11px] font-bold text-amber-300 cursor-pointer">🏁 Yarışı başlat</button>' +
+                '<button type="button" data-act="bidmine" class="py-2 rounded-lg bg-slate-800 border border-slate-700 text-[11px] font-bold text-emerald-300 cursor-pointer">⚡ Direkt al</button></div>' +
+                '<div class="text-[10px] text-slate-500">🏁 Yarış: açılış fiyatı oyuncunun değeri, takımlar 0,5 M’lik adımlarla yükseltir; en yüksek veren alır. Sen de takımınla katılırsan teklifin senin tavanın olur. Sonuç “Transfer Dönemi” kutusuna onayına düşer. ⚡ Direkt al: seçtiğin takım yazdığın tutarı hemen öder, satan takım parayı alır.</div></div>';
+        }
         function offersHtml(L) {
             const A = loadAll();
             const multi = A.leagues.length > 1;
@@ -4897,6 +4996,7 @@
                 transferOffers.list.forEach(o => {
                     let body;
                     if (o.kind === 'acad') body = '<div class="text-[11px] font-bold text-white">' + esc(nm(o.al, o.a)) + ' · 🎓 altyapıdan oyuncu</div><div class="text-[11px] text-slate-300">Yeni oyuncu: <b>' + esc(o.inn) + '</b> <span class="text-slate-500">(değer ' + ACADEMY_COST + 'M · bedel ' + ACADEMY_COST + 'M bütçeden · yedek kadroya girer)</span></div>';
+                    else if (o.kind === 'bid') body = '<div class="text-[11px] font-bold text-white">🏷️ Transfer yarışı: ' + esc(o.inn) + '</div><div class="text-[11px] text-slate-300">Kazanan: <b class="text-emerald-300">' + esc(nm(o.al, o.a)) + '</b>' + (o.my ? ' (senin takımın)' : '') + ' · <b>' + o.price + ' M</b>' + (o.b ? '<br>Satan takım: ' + esc(nm(o.bl, o.b)) + ' (parayı alır)' : '<br>Serbest oyuncu (bedel bütçeden düşer)') + '<br><span class="text-slate-500">Teklifler: ' + o.log.map(x => esc(x.n) + ' ' + x.p).join(' → ') + '</span></div>';
                     else if (o.kind === 'swap') body = '<div class="text-[11px] font-bold text-white">' + esc(nm(o.al, o.a)) + ' ⇄ ' + esc(nm(o.bl, o.b)) + '</div><div class="text-[11px] text-slate-300">' + esc(nm(o.al, o.a)) + ' verir: ' + pl(o.out, o.al) + '<br>' + esc(nm(o.bl, o.b)) + ' verir: ' + pl(o.inn, o.bl) + '</div>';
                     else body = '<div class="text-[11px] font-bold text-white">' + esc(nm(o.al, o.a)) + ' · serbest oyuncu alımı</div><div class="text-[11px] text-slate-300">Gelir: ' + pl(o.inn, o.il) + '<br>Ayrılır: ' + pl(o.out, o.al) + '</div>';
                     h += '<div class="rounded-xl bg-slate-800/70 border border-slate-700 p-2 space-y-1">' + body +
@@ -4930,7 +5030,7 @@
                 });
                 h += '</div>';
             }
-            h += playersHtml(L) + offersHtml(L);
+            h += playersHtml(L) + offersHtml(L) + bidHtml();
             const A2 = loadAll();
             const others = A2.leagues.filter(l => l.id !== A2.active && l.teams.length);
             if (others.length) {
@@ -5341,6 +5441,8 @@
         }));
 
         leagueBody.addEventListener('change', e => {
+            const bidf = e.target.getAttribute && e.target.getAttribute('data-bidf');
+            if (bidf) { bidForm[bidf] = e.target.value; return; }
             const lgset = e.target.getAttribute && e.target.getAttribute('data-lgset');
             if (lgset) {
                 const A = loadAll(), X = activeLeague(A), t = e.target;
@@ -5497,6 +5599,30 @@
                 cur.reels = cur.reels.slice(-150);
                 if (saveAll(A)) { renderLeague(); toast('✅ ' + t.name + ' bu lige alındı' + (nr ? ' · ' + nr + ' gol tekrarı' : '') + (nv ? ' · ' + nv + ' değer' : '')); }
                 else toast('⚠️ Kaydedilemedi (depolama dolu olabilir)');
+            } else if (act === 'bidstart' || act === 'bidmine') {
+                const A = loadAll();
+                const hold = decodeBidPlayer(A, bidForm.p);
+                if (!hold) { toast('Önce bir oyuncu seç'); return; }
+                const mp = String(bidForm.my || '').split(':');
+                const my = bidForm.my ? findTeam(A, mp[0], mp[1]) : null;
+                const amt = parseFloat(bidForm.amt);
+                if (my && hold.t && my.t === hold.t) { toast('Oyuncu zaten bu takımda'); return; }
+                if (act === 'bidmine') {
+                    if (!my) { toast('Benim takımım alanından bir takım seç'); return; }
+                    if (!Number.isFinite(amt) || amt < 0) { toast('Teklif tutarını yaz'); return; }
+                    const o = { id: uid(), kind: 'bid', a: my.t.id, al: my.l.id, b: hold.t ? hold.t.id : null, bl: hold.l.id, inn: hold.n, price: Math.round(amt * 10) / 10, my: true, log: [] };
+                    if (applyOffer(A, o) && saveAll(A)) { renderLeague(); toast('⚡ ' + hold.n + ' → ' + my.t.name + ' · ' + o.price + ' M'); }
+                    else toast('⚠️ Olmadı: bütçe yetmiyor ya da yedek kadro dolu (12)');
+                    return;
+                }
+                if (my && (!Number.isFinite(amt) || amt <= 0)) { toast('Katılmak için teklif tutarını yaz'); return; }
+                const res = runAuction(A, hold, my, my ? amt : 0);
+                if (!res) { toast('🏷️ Kimse teklif vermedi (bütçe ya da ilgi yok)'); return; }
+                transferOffers = transferOffers || { list: [] };
+                transferOffers.list.push(res);
+                renderLeague();
+                const wr = findTeam(A, res.al, res.a);
+                toast('🏷️ Yarış bitti: ' + (wr ? wr.t.name : '?') + ' ' + res.price + ' M · onayını bekliyor');
             } else if (act === 'mkoffers') {
                 transferOffers = { list: buildOffers(loadAll()) };
                 renderLeague();
