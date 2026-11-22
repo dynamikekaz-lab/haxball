@@ -3853,7 +3853,7 @@
             const l = activeLeague(A);
             l.teams = L.teams;
             l.matches = L.matches;
-            ['pool', 'reels', 'resetAt', 'values'].forEach(k => { if (k in L) l[k] = L[k]; });
+            ['pool', 'reels', 'resetAt', 'values', 'countries'].forEach(k => { if (k in L) l[k] = L[k]; });
             return saveAll(A);
         }
 
@@ -4515,6 +4515,11 @@
             if (l.budgetTop !== undefined && l.budgetTop !== null && Number.isFinite(+l.budgetTop)) o.budgetTop = Math.max(0, Math.min(9999, +l.budgetTop));
             if (typeof l.playoff === 'boolean') o.playoff = l.playoff;
             if (typeof l.aiValues === 'boolean') o.aiValues = l.aiValues;
+            if (l.countries && typeof l.countries === 'object') {
+                const cs = {};
+                Object.keys(l.countries).slice(0, 800).forEach(k => { const v = String(l.countries[k]); if (COUNTRY_CODES.has(v)) cs[String(k).slice(0, 10)] = v; });
+                o.countries = cs;
+            }
             if (l.sellOn && typeof l.sellOn === 'object') {
                 const so = {};
                 Object.keys(l.sellOn).slice(0, 300).forEach(k => { const v = l.sellOn[k]; if (v && v.l && v.t && Number.isFinite(+v.pct) && +v.pct > 0) so[String(k).slice(0, 10)] = { l: String(v.l), t: String(v.t), pct: Math.min(50, +v.pct), tn: String(v.tn || '').slice(0, 24) }; });
@@ -4723,6 +4728,19 @@
         const ACADEMY_COST = 3;
         // 👥 Kulüp başına minimum oyuncu sayısı (4v4): AI kulüpler bu sınırın altına düşmez, düşerse kendileri tamamlar
         const MIN_SQUAD = 4;
+        // 🌍 Oyuncu ülkeleri (lig bazında L.countries[ad] = kod). Kaydı olmayan oyuncuya addan türetilen sabit ülke gösterilir.
+        const COUNTRIES = [['TR','Türkiye'],['DE','Almanya'],['FR','Fransa'],['ES','İspanya'],['IT','İtalya'],['PT','Portekiz'],['NL','Hollanda'],['BE','Belçika'],['GB','İngiltere'],['BR','Brezilya'],['AR','Arjantin'],['UY','Uruguay'],['CO','Kolombiya'],['MX','Meksika'],['US','ABD'],['SN','Senegal'],['NG','Nijerya'],['GH','Gana'],['CI','Fildişi Sahili'],['MA','Fas'],['DZ','Cezayir'],['EG','Mısır'],['HR','Hırvatistan'],['RS','Sırbistan'],['PL','Polonya'],['UA','Ukrayna'],['RU','Rusya'],['GR','Yunanistan'],['SE','İsveç'],['DK','Danimarka'],['NO','Norveç'],['CH','İsviçre'],['AT','Avusturya'],['JP','Japonya'],['KR','Güney Kore'],['AZ','Azerbaycan']];
+        const COUNTRY_CODES = new Set(COUNTRIES.map(c => c[0]));
+        function flagOf(cc) { return COUNTRY_CODES.has(cc) ? String.fromCodePoint(...cc.split('').map(ch => 127397 + ch.charCodeAt(0))) : '🏳️'; }
+        function countryName(cc) { const c = COUNTRIES.find(x => x[0] === cc); return c ? c[1] : ''; }
+        function randomCountry() { return Math.random() < 0.4 ? 'TR' : COUNTRIES[Math.floor(Math.random() * COUNTRIES.length)][0]; }
+        function countryOf(L, n) {
+            const c = L && L.countries && L.countries[n];
+            if (c && COUNTRY_CODES.has(c)) return c;
+            let h = 0; for (let i = 0; i < n.length; i++) h = (h * 31 + n.charCodeAt(i)) >>> 0;
+            return (h % 5 < 2) ? 'TR' : COUNTRIES[h % COUNTRIES.length][0];
+        }
+        function flagName(L, n) { return flagOf(countryOf(L, n)) + ' ' + n; }
         function squadSize(t) { return squadNames(t).length; }
         // Oyuncuyu önce boş (varsayılan isimli) mevkiye, yoksa yedek kadroya koyar
         function addToSquad(t, n) {
@@ -4736,12 +4754,15 @@
             loadAll().leagues.forEach(l => allPlayers(l).forEach(n => set.add(String(n).toLocaleLowerCase('tr'))));
             return set;
         }
+        const NAME_SYL = ['ge','xin','zor','ak','vex','on','ra','mo','kil','tu','ne','dro','shi','lex','bu','zy','qui','ta','fro','nix','ol','im','ka','ry','vo','dal','pex','jun','wo','sil','tek','ra','zu','lo','max','vi','ko','dex','ni','sa','fyx','bor','el','tri','ga','zen','ux','pol','han','ix'];
         function randomYouthName(taken) {
-            const letters = 'ABCÇDEFGHIJKLMNOÖPRSŞTUÜVYZ';
-            for (let i = 0; i < 400; i++) {
-                const f = YOUTH_FIRST[Math.floor(Math.random() * YOUTH_FIRST.length)];
-                const n = f + ' ' + letters[Math.floor(Math.random() * letters.length)] + '.';
-                if (n.length <= 10 && !taken.has(n.toLocaleLowerCase('tr'))) return n;
+            for (let i = 0; i < 600; i++) {
+                const k = 2 + (Math.random() < 0.35 ? 1 : 0);
+                let n = '';
+                for (let j = 0; j < k; j++) n += NAME_SYL[Math.floor(Math.random() * NAME_SYL.length)];
+                n = n.charAt(0).toUpperCase() + n.slice(1);
+                if (Math.random() < 0.08) n += Math.floor(Math.random() * 90 + 10);
+                if (n.length >= 4 && n.length <= 10 && !taken.has(n.toLocaleLowerCase('tr'))) return n;
             }
             for (let k = 1; k < 1000; k++) {
                 const n = 'Genç' + k;
@@ -4763,7 +4784,7 @@
                 '<button type="button" data-act="addplayer" class="px-3 py-2 rounded-lg bg-slate-800 border border-slate-700 text-[11px] font-bold text-emerald-300 cursor-pointer">➕ Oluştur</button></div>';
             list.forEach(n => {
                 const cur = teamOfPlayer(L, n);
-                h += '<div class="flex items-center gap-2"><span class="flex-1 min-w-0 text-xs font-bold text-white truncate cursor-pointer" data-act="player" data-id="' + esc(n) + '">' + esc(n) + '</span>' +
+                h += '<div class="flex items-center gap-2"><span class="flex-1 min-w-0 text-xs font-bold text-white truncate cursor-pointer" data-act="player" data-id="' + esc(n) + '">' + flagOf(countryOf(L, n)) + ' ' + esc(n) + '</span>' +
                     '<select data-xfer="' + esc(n) + '" class="w-32 px-2 py-1 rounded-lg bg-slate-800 border border-slate-700 text-[11px] font-bold text-white"><option value="">Serbest</option>' +
                     L.teams.map(t => '<option value="' + esc(t.id) + '"' + (cur && cur.id === t.id ? ' selected' : '') + '>' + esc(t.name) + '</option>').join('') +
                     otherLg.map(l => l.teams.length ? '<optgroup label="' + esc(l.name) + '">' + l.teams.map(t => '<option value="' + esc(l.id + ':' + t.id) + '">' + esc(t.name) + '</option>').join('') + '</optgroup>' : '').join('') + '</select>' +
@@ -4814,6 +4835,8 @@
             const v = src.values && src.values[n];
             if (Number.isFinite(v)) { dst.values = dst.values || {}; dst.values[n] = v; }
             if (src.values) delete src.values[n];
+            const cc = src.countries && src.countries[n];
+            if (cc) { dst.countries = dst.countries || {}; dst.countries[n] = cc; delete src.countries[n]; }
             const so = src.sellOn && src.sellOn[n];
             if (so) { dst.sellOn = dst.sellOn || {}; dst.sellOn[n] = so; }
             if (src.sellOn) delete src.sellOn[n];
@@ -4850,7 +4873,7 @@
                 if (!(bud(t) >= ACADEMY_COST) || (t.bench || []).length >= 12) return false;
                 const nm = randomYouthName(taken);
                 if (!nm) return false;
-                const o = { id: uid(), kind: 'acad', a: t.id, al: l.id, inn: nm, price: ACADEMY_COST, ai: true };
+                const o = { id: uid(), kind: 'acad', cc: randomCountry(), a: t.id, al: l.id, inn: nm, price: ACADEMY_COST, ai: true };
                 if (!applyOffer(A, o)) return false;
                 taken.add(nm.toLocaleLowerCase('tr'));
                 logTransfer(A, o, why, true);
@@ -4967,6 +4990,8 @@
                 addToSquad(ta, o.inn);
                 La.values = La.values || {};
                 La.values[o.inn] = ACADEMY_COST;
+                La.countries = La.countries || {};
+                La.countries[o.inn] = COUNTRY_CODES.has(o.cc) ? o.cc : randomCountry();
                 addPool(La, o.inn);
                 return true;
             }
@@ -5353,13 +5378,13 @@
             if (transferOffers) {
                 const f = leagueFormMap(), ps = n => formScore(f.byName[n]).toFixed(1);
                 const nm = (lid, id) => { const r = findTeam(A, lid, id); return r ? r.t.name + (multi ? ' (' + r.l.name + ')' : '') : '?'; };
-                const pl = (n, lid) => { const l = A.leagues.find(x => x.id === lid); return esc(n) + ' <span class="text-slate-500">(' + (l ? mvOf(l, n) : 0) + 'M · form ' + ps(n) + ')</span>'; };
+                const pl = (n, lid) => { const l = A.leagues.find(x => x.id === lid); return flagOf(countryOf(l, n)) + ' ' + esc(n) + ' <span class="text-slate-500">(' + (l ? mvOf(l, n) : 0) + 'M · form ' + ps(n) + ')</span>'; };
                 if (!transferOffers.list.length) h += '<div class="text-[11px] text-slate-500">Şu an uygun teklif yok.</div>';
                 const wantCount = {};
                 transferOffers.list.forEach(o => { if (o.kind === 'swap' || o.kind === 'fa' || o.kind === 'buy') wantCount[o.inn] = (wantCount[o.inn] || 0) + 1; });
                 transferOffers.list.forEach(o => {
                     let body;
-                    if (o.kind === 'acad') body = '<div class="text-[11px] font-bold text-white">' + esc(nm(o.al, o.a)) + ' · 🎓 altyapıdan oyuncu</div><div class="text-[11px] text-slate-300">Yeni oyuncu: <b>' + esc(o.inn) + '</b> <span class="text-slate-500">(değer ' + ACADEMY_COST + 'M · bedel ' + ACADEMY_COST + 'M bütçeden · boş mevkiye ya da yedeğe girer)</span></div>';
+                    if (o.kind === 'acad') body = '<div class="text-[11px] font-bold text-white">' + esc(nm(o.al, o.a)) + ' · 🎓 altyapıdan oyuncu</div><div class="text-[11px] text-slate-300">Yeni oyuncu: <b>' + flagOf(o.cc) + ' ' + esc(o.inn) + '</b> <span class="text-slate-500">(değer ' + ACADEMY_COST + 'M · bedel ' + ACADEMY_COST + 'M bütçeden · boş mevkiye ya da yedeğe girer)</span></div>';
                     else if (o.kind === 'bid' && (o.log || []).length) body = '<div class="text-[11px] font-bold text-white">🏷️ Transfer yarışı: ' + esc(o.inn) + '</div><div class="text-[11px] text-slate-300">Kazanan: <b class="text-emerald-300">' + esc(nm(o.al, o.a)) + '</b>' + (o.my ? ' (senin takımın)' : '') + ' · <b>' + o.price + ' M</b>' + (o.b ? '<br>Satan takım: ' + esc(nm(o.bl, o.b)) + ' (parayı alır)' + (o.so > 0 ? '<br>🤝 Satış payı: sonraki satışta ' + esc(nm(o.bl, o.b)) + ' %' + o.so + ' alır' : '') : '<br>Serbest oyuncu (bedel bütçeden düşer)') + '<br><span class="text-slate-500">Teklifler: ' + o.log.map(x => esc(x.n) + ' ' + x.p).join(' → ') + '</span>' + (o.noCount ? '<br><span class="text-slate-500">Katılmayanlar (' + o.noCount + '): ' + o.no.map(esc).join(', ') + (o.noCount > o.no.length ? ' ...' : '') + '</span>' : '') + '</div>';
                     else if (o.kind === 'buy' || o.kind === 'bid') body = '<div class="text-[11px] font-bold text-white">💰 ' + esc(nm(o.al, o.a)) + (o.kind === 'bid' ? ' · direkt alım teklifi' : ' · nakit alım teklifi') + '</div><div class="text-[11px] text-slate-300">İstenen: ' + pl(o.inn, o.bl) + '<br>Satan: ' + esc(o.b ? nm(o.bl, o.b) : 'Serbest') + ' · bedel <b class="text-emerald-300">' + o.price + ' M</b> <span class="text-slate-500">(oyuncu verilmez, sadece bütçeden)</span>' + (o.so > 0 ? '<br>🤝 Satış payı: sonraki satışta ' + esc(nm(o.bl, o.b)) + ' %' + o.so + ' alır' : '') + '</div>';
                     else if (o.kind === 'swap') body = '<div class="text-[11px] font-bold text-white">' + esc(nm(o.al, o.a)) + ' ⇄ ' + esc(nm(o.bl, o.b)) + '</div><div class="text-[11px] text-slate-300">' + esc(nm(o.al, o.a)) + ' verir: ' + pl(o.out, o.al) + '<br>' + esc(nm(o.bl, o.b)) + ' verir: ' + pl(o.inn, o.bl) + (o.so > 0 ? '<br>🤝 ' + esc(nm(o.al, o.a)) + ', ' + esc(o.out) + ' sonraki satılırsa %' + o.so + ' alır' : '') + (o.so2 > 0 ? '<br>🤝 ' + esc(nm(o.bl, o.b)) + ', ' + esc(o.inn) + ' sonraki satılırsa %' + o.so2 + ' alır' : '') + '</div>';
@@ -5390,8 +5415,8 @@
                     h += '<div class="rounded-2xl bg-slate-900/90 border border-slate-800 p-3">' +
                         '<div class="flex items-center gap-2">' + teamBadge(t, 30) +
                         '<div class="flex-1 min-w-0"><div class="text-sm font-black text-white truncate">' + esc(t.name) + '</div>' +
-                        '<div class="text-[10px] text-slate-400 truncate">' + ROLES.map(r => ROLE_ICONS[r] + ' ' + esc((t.names && t.names[r]) || r)).join(' · ') + '</div>' +
-                        ((t.bench && t.bench.length) ? '<div class="text-[10px] text-slate-500 mt-0.5">🪑 Yedek (' + t.bench.length + '): ' + t.bench.map(esc).join(', ') + '</div>' : '') +
+                        '<div class="text-[10px] text-slate-400 truncate">' + ROLES.map(r => { const nn = (t.names && t.names[r]) || r; return ROLE_ICONS[r] + ' ' + (DEFAULT_ROLE_NAMES.has(String(nn).trim().toLocaleLowerCase('tr')) ? '' : flagOf(countryOf(L, nn)) + ' ') + esc(nn); }).join(' · ') + '</div>' +
+                        ((t.bench && t.bench.length) ? '<div class="text-[10px] text-slate-500 mt-0.5">🪑 Yedek (' + t.bench.length + '): ' + t.bench.map(n => flagOf(countryOf(L, n)) + ' ' + esc(n)).join(', ') + '</div>' : '') +
                         '<div class="text-[10px] ' + (squadSize(t) < MIN_SQUAD ? 'text-red-400' : 'text-slate-400') + ' mt-0.5">👥 Kadro: ' + squadSize(t) + ' / min ' + MIN_SQUAD + (squadSize(t) < MIN_SQUAD ? ' ⚠️ eksik' : '') + '</div>' +
                         '<div class="text-[10px] text-amber-300 mt-0.5">💰 Kadro değeri: ' + (Math.round(squadValue(L, t) * 10) / 10) + ' M</div>' +
                         '<div class="flex items-center gap-1.5 mt-0.5"><span class="text-[10px] text-emerald-300">💵 Bütçe</span><input type="number" min="0" step="0.5" data-budget="' + esc(t.id) + '" value="' + (Number.isFinite(t.budget) ? t.budget : '') + '" placeholder="0" class="w-20 px-2 py-0.5 rounded-lg bg-slate-800 border border-slate-700 text-[11px] font-bold text-white text-right"><span class="text-[10px] text-slate-500">M</span></div>' +
@@ -5554,12 +5579,15 @@
         }
         function showPlayer(name) {
             const c = playerCareer(name), tot = c.tot;
-            const Lc = loadLeague(), team = teamOfPlayer(Lc, name);
+            const Lc0 = loadLeague(), Aall0 = loadAll();
+            const Lc = Aall0.leagues.find(l => allPlayers(l).includes(name)) || Lc0, team = teamOfPlayer(Lc, name);
+            const curCc = countryOf(Lc, name);
             const yg = Object.values(loadHall().goals).filter(g => g && g.name === name).length;
             const cell = (label, v) => '<div class="rounded-xl bg-slate-800/80 border border-slate-700 px-2 py-2 text-center"><div class="text-base font-black text-white">' + v + '</div><div class="text-[10px] text-slate-400">' + label + '</div></div>';
             let h = '<div class="w-full max-h-[85vh] overflow-y-auto rounded-t-3xl bg-slate-900 border-t border-slate-700 p-4 space-y-3">' +
                 '<div class="flex items-center gap-2"><div class="flex-1 min-w-0"><div class="text-lg font-black text-white truncate">' + esc(name) + '</div>' +
-                '<div class="text-[11px] text-slate-400 truncate">' + (team ? esc(team.name) : 'Takımsız') + (yg ? ' · 🏅 ' + yg + ' kez Yılın Golü' : '') + '</div></div>' +
+                '<div class="text-[11px] text-slate-400 truncate">' + (team ? esc(team.name) : 'Takımsız') + (yg ? ' · 🏅 ' + yg + ' kez Yılın Golü' : '') + '</div>' +
+                '<div class="flex items-center gap-1.5 mt-1"><span class="text-base">' + flagOf(curCc) + '</span><select data-cc="1" class="px-2 py-0.5 rounded-lg bg-slate-800 border border-slate-700 text-[11px] font-bold text-white">' + COUNTRIES.map(c => '<option value="' + c[0] + '"' + (c[0] === curCc ? ' selected' : '') + '>' + c[1] + '</option>').join('') + '</select></div></div>' +
                 '<button type="button" data-close="1" class="px-2 py-1 rounded-lg bg-slate-800 border border-slate-700 text-slate-300 text-xs font-bold cursor-pointer">✖</button></div>' +
                 '<div class="text-[10px] font-bold uppercase tracking-wider text-slate-500">Gelmiş geçmiş (tüm ligler + turnuva)</div>' +
                 '<div class="grid grid-cols-3 gap-2">' + cell('⚽ Gol', tot.g) + cell('🅰️ Asist', tot.a) + cell('⭐ Maçın adamı', tot.m) +
@@ -5578,6 +5606,14 @@
             const el = document.createElement('div');
             el.id = 'playerSheet'; el.className = 'fixed inset-0 z-[60] flex items-end bg-black/60'; el.innerHTML = h;
             el.addEventListener('click', e => { if (e.target === el || e.target.closest('[data-close]')) el.remove(); });
+            el.addEventListener('change', e => {
+                if (!e.target.hasAttribute || !e.target.hasAttribute('data-cc')) return;
+                const A = loadAll(), l = A.leagues.find(x => allPlayers(x).includes(name)) || activeLeague(A);
+                l.countries = l.countries || {}; l.countries[name] = e.target.value;
+                saveAll(A);
+                const fl = e.target.parentNode && e.target.parentNode.querySelector('span'); if (fl) fl.textContent = flagOf(e.target.value);
+                toast(flagOf(e.target.value) + ' ' + name + ' → ' + countryName(e.target.value));
+            });
             document.body.appendChild(el);
         }
         // GOL ARŞİVİ + YILIN GOLÜ
@@ -6034,7 +6070,7 @@
                     const bd = Number.isFinite(t.budget) ? t.budget : Infinity;
                     const c = fa0.filter(x => mvOf(x.l, x.n) <= bd && !list.some(y => y.inn === x.n))[0];
                     if (c) list.push({ id: uid(), kind: 'bid', a: t.id, al: l.id, b: null, bl: c.l.id, inn: c.n, price: Math.max(0.5, mvOf(c.l, c.n)), so: 0 });
-                    else if (bd >= ACADEMY_COST) { const nm = randomYouthName(tk); if (nm) { tk.add(nm.toLocaleLowerCase('tr')); list.push({ id: uid(), kind: 'acad', a: t.id, al: l.id, inn: nm, price: ACADEMY_COST, ai: true }); } }
+                    else if (bd >= ACADEMY_COST) { const nm = randomYouthName(tk); if (nm) { tk.add(nm.toLocaleLowerCase('tr')); list.push({ id: uid(), kind: 'acad', cc: randomCountry(), a: t.id, al: l.id, inn: nm, price: ACADEMY_COST, ai: true }); } }
                 });
                 if (auto || ph.signed || ph.youth) saveAll(A);
                 transferOffers = { list };
@@ -6123,7 +6159,7 @@
                 const nmz = randomYouthName(taken);
                 if (!nmz) return;
                 transferOffers = transferOffers || { list: [] };
-                transferOffers.list.push({ id: uid(), kind: 'acad', a: t.id, al: X.id, inn: nmz });
+                transferOffers.list.push({ id: uid(), kind: 'acad', cc: randomCountry(), a: t.id, al: X.id, inn: nmz });
                 renderLeague(); toast('🎓 ' + t.name + ' için altyapı teklifi hazır, onayını bekliyor');
             } else if (act === 'player') {
                 showPlayer(id);
