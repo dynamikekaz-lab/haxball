@@ -4721,6 +4721,15 @@
 
         // 🎓 ALTYAPI: hakkı olan takım, 3 M bedelle rastgele isimli genç çıkarır (sen onaylarsın)
         const ACADEMY_COST = 3;
+        // 👥 Kulüp başına minimum oyuncu sayısı (4v4): AI kulüpler bu sınırın altına düşmez, düşerse kendileri tamamlar
+        const MIN_SQUAD = 4;
+        function squadSize(t) { return squadNames(t).length; }
+        // Oyuncuyu önce boş (varsayılan isimli) mevkiye, yoksa yedek kadroya koyar
+        function addToSquad(t, n) {
+            t.names = t.names || {};
+            const r = ROLES.find(x => !t.names[x] || DEFAULT_ROLE_NAMES.has(String(t.names[x]).trim().toLocaleLowerCase('tr')));
+            if (r) t.names[r] = n; else t.bench = (t.bench || []).concat(n);
+        }
         const YOUTH_FIRST = ['Emre','Burak','Kaan','Arda','Mert','Efe','Yusuf','Can','Eren','Berk','Onur','Selim','Deniz','Baran','Ege','Kerem','Tolga','Cem','Ozan','Barış','Umut','Alp','Enes','Hakan','Oğuz','Taha','Ali','Veli','Koray','Murat','Emir','Çınar','Yiğit','Atlas','Rüzgar','Doruk','Poyraz','Aras','Mete','Işık','Bora','Tuna','Furkan','Ilker','Sinan','Kağan','Berat','Eymen','Metin','Nuri'];
         function allNamesEverywhere() {
             const set = new Set(DEFAULT_ROLE_NAMES);
@@ -4816,6 +4825,65 @@
             t.bench = (t.bench || []).map(x => x === out ? inn : x);
             if (t.captain === out) t.captain = null;
         }
+
+        // ===== 🤖 AI KADRO FAZI: minimum 4 oyuncu kuralı =====
+        // AI kulüp 4 oyuncunun altındaysa kendi karar verir: serbest oyuncu al (transfer) ya da altyapıdan genç çıkar.
+        // Kadrosu ince ve parası rahat olan AI kulüp, altyapı hakkı varsa kendiliğinden genç de çıkarır.
+        function freeAgentsOf(A) {
+            const rostered = new Set();
+            A.leagues.forEach(l => l.teams.forEach(t => squadNames(t).forEach(n => rostered.add(n))));
+            const out = [], seen = new Set();
+            A.leagues.forEach(l => allPlayers(l).forEach(n => { if (!rostered.has(n) && !seen.has(n)) { seen.add(n); out.push({ n, l }); } }));
+            return out;
+        }
+        function takenNames(A) {
+            const set = new Set(DEFAULT_ROLE_NAMES);
+            A.leagues.forEach(l => allPlayers(l).forEach(n => set.add(String(n).toLocaleLowerCase('tr'))));
+            return set;
+        }
+        function aiSquadPhase(A) {
+            const res = { signed: 0, youth: 0, log: [] };
+            const taken = takenNames(A);
+            const bud = t => Number.isFinite(t.budget) ? t.budget : Infinity;
+            const teams = shuffleArr(allTeamsFlat(A).filter(x => isAi(x.l.id, x.t.id)));
+            const tryYouth = (l, t, why) => {
+                if (!(bud(t) >= ACADEMY_COST) || (t.bench || []).length >= 12) return false;
+                const nm = randomYouthName(taken);
+                if (!nm) return false;
+                const o = { id: uid(), kind: 'acad', a: t.id, al: l.id, inn: nm, price: ACADEMY_COST, ai: true };
+                if (!applyOffer(A, o)) return false;
+                taken.add(nm.toLocaleLowerCase('tr'));
+                logTransfer(A, o, why, true);
+                res.youth++; res.log.push(t.name + ' 🎓 ' + nm);
+                return true;
+            };
+            const tryFree = (l, t, why) => {
+                const pool = freeAgentsOf(A).filter(x => mvOf(x.l, x.n) <= bud(t) && (t.bench || []).length < 12);
+                if (!pool.length) return false;
+                const f = leagueFormMap();
+                // AI en formda olanlar arasından seçer (ilk 3 aday içinden rastgele)
+                pool.sort((a, b) => formScore(f.byName[b.n]) - formScore(f.byName[a.n]));
+                const c = pool[Math.floor(Math.random() * Math.min(3, pool.length))];
+                const o = { id: uid(), kind: 'bid', a: t.id, al: l.id, b: null, bl: c.l.id, inn: c.n, price: Math.max(0.5, mvOf(c.l, c.n)), so: 0 };
+                if (!applyOffer(A, o)) return false;
+                logTransfer(A, o, why, true);
+                res.signed++; res.log.push(t.name + ' ✍️ ' + c.n);
+                return true;
+            };
+            teams.forEach(({ l, t }) => {
+                let guard = 0;
+                while (squadSize(t) < MIN_SQUAD && guard++ < MIN_SQUAD + 2) {   // eksik oyuncu: AI transfer mi altyapı mı karar verir
+                    const preferFree = Math.random() < 0.6;
+                    const ok = preferFree
+                        ? (tryFree(l, t, 'AI: min ' + MIN_SQUAD + ' kadro') || tryYouth(l, t, 'AI: min ' + MIN_SQUAD + ' kadro'))
+                        : (tryYouth(l, t, 'AI: min ' + MIN_SQUAD + ' kadro') || tryFree(l, t, 'AI: min ' + MIN_SQUAD + ' kadro'));
+                    if (!ok) break;                                              // para/oyuncu yok: bu kulüp şimdilik eksik kalır
+                }
+                // Kadro ince (min..min+1) ve para rahat: altyapı hakkı varsa AI genç çıkarmaya kendi karar verir
+                if (squadSize(t) <= MIN_SQUAD + 1 && (t.academy | 0) > 0 && bud(t) >= ACADEMY_COST * 3 && Math.random() < 0.5) tryYouth(l, t, 'AI: altyapı kararı');
+            });
+            return res;
+        }
         // RASTGELE teklifler, tüm liglerin takımları arasında (1. lig ↔ 2. lig dahil). Sen onaylarsın.
         function buildOffers(A) {
             const rostered = new Set();
@@ -4845,7 +4913,7 @@
                 if (Math.random() < 0.4 && (t.bench || []).length < 12) {       // nakit alım: oyuncu vermeden, sadece bütçeden
                     const cashC = [];
                     teams.forEach(({ l: lb, t: o }) => {
-                        if (o === t) return;
+                        if (o === t || squadSize(o) <= MIN_SQUAD) return;
                         squadNames(o).forEach(b => {
                             if (used.has(b)) return;
                             const price = Math.max(0.5, Math.round(mvOf(lb, b) * (0.9 + Math.random() * 0.4) * 2) / 2);
@@ -4891,12 +4959,12 @@
             if (!ra) return false;
             const La = ra.l, ta = ra.t;
             if (o.kind === 'acad') {
-                if (!((ta.academy | 0) > 0) || (ta.bench || []).length >= 12) return false;
+                if ((!((ta.academy | 0) > 0) && !o.ai) || (ta.bench || []).length >= 12) return false;   // AI kulüp hak aramadan kendi karar verir
                 if (Number.isFinite(ta.budget) && ta.budget < ACADEMY_COST) return false;
                 if (A.leagues.some(l => allPlayers(l).includes(o.inn))) return false;
                 if (Number.isFinite(ta.budget)) ta.budget = Math.round((ta.budget - ACADEMY_COST) * 10) / 10;
-                ta.academy = (ta.academy | 0) - 1;
-                ta.bench = (ta.bench || []).concat(o.inn);
+                if ((ta.academy | 0) > 0) ta.academy = (ta.academy | 0) - 1;
+                addToSquad(ta, o.inn);
                 La.values = La.values || {};
                 La.values[o.inn] = ACADEMY_COST;
                 addPool(La, o.inn);
@@ -4910,6 +4978,7 @@
                 if (o.b) {
                     ts = Ls.teams.find(t => t.id === o.b);
                     if (!ts || ts === ta || !squadNames(ts).includes(o.inn)) return false;
+                    if (squadSize(ts) <= MIN_SQUAD) return false;      // satan takım minimum oyuncu sayısının altına düşemez
                 } else if (A.leagues.some(l => l.teams.some(t => squadNames(t).includes(o.inn)))) return false;
                 if (Number.isFinite(ta.budget) && o.price > ta.budget) return false;
                 if (Number.isFinite(ta.budget)) ta.budget = Math.round((ta.budget - o.price) * 10) / 10;
@@ -4936,7 +5005,7 @@
                 La.values = La.values || {};
                 La.values[o.inn] = o.price;
                 addPool(La, o.inn);
-                ta.bench = (ta.bench || []).concat(o.inn);
+                addToSquad(ta, o.inn);
                 La.sellOn = La.sellOn || {};
                 delete La.sellOn[o.inn];                                   // eski şart ödendi / geçersiz
                 if (ts && o.so > 0) La.sellOn[o.inn] = { l: Ls.id, t: ts.id, pct: Math.min(50, o.so | 0), tn: ts.name };   // yeni şart: satan takım sonraki satıştan pay alır
@@ -5277,7 +5346,7 @@
                 const total = A.leagues.reduce((n, l) => n + l.teams.length, 0);
                 const chip = 'px-2 py-0.5 rounded-lg bg-slate-900 border border-slate-700 text-[10px] font-bold cursor-pointer';
                 h += '<details class="rounded-xl bg-slate-800/50 border border-slate-700 p-2"' + (aiPanelOpen ? ' open' : '') + '><summary class="text-[11px] font-bold text-slate-300 cursor-pointer">🤖 AI yönetsin: ' + aiClubs.size + ' / ' + total + ' kulüp seçili</summary><div class="pt-2 space-y-2">' +
-                    '<div class="text-[10px] text-slate-500">Seçili kulüplerin transferlerini AI yönetir: birbirleriyle anlaşmaları kendiliğinden gerçekleşir; senin kulübünün teklifini kabul eder ya da daha yüksek teklif ister. Seçmediğin kulüplerin alım ve satışları senin kararın. Hiç kulüp seçili değilse her teklif sana düşer.</div>' +
+                    '<div class="text-[10px] text-slate-500">Seçili kulüplerin transferlerini AI yönetir: birbirleriyle anlaşmaları kendiliğinden gerçekleşir; senin kulübünün teklifini kabul eder ya da daha yüksek teklif ister. Seçmediğin kulüplerin alım ve satışları senin kararın. Hiç kulüp seçili değilse her teklif sana düşer. Her kulübün en az ' + MIN_SQUAD + ' oyuncusu olmalı: seçili kulüp eksikse serbest oyuncu alır ya da altyapıdan genç çıkarır (karar AI’ın), kadrosu ince ve parası rahatsa kendiliğinden genç de çıkarır. Satan takım ' + MIN_SQUAD + ' oyuncunun altına düşecek satışı kabul etmez.</div>' +
                     '<div class="flex gap-2"><button type="button" data-act="aiall" class="' + chip + ' text-emerald-300">Hepsini seç</button><button type="button" data-act="ainone" class="' + chip + ' text-slate-300">Seçimi temizle</button></div>' +
                     A.leagues.map(l => '<div><div class="text-[10px] font-bold text-slate-400">' + esc(l.name) + '</div><div class="flex flex-wrap gap-1.5 pt-1">' + l.teams.map(t => '<label class="flex items-center gap-1 px-2 py-1 rounded-lg bg-slate-900 border border-slate-700 text-[10px] font-bold text-slate-200 cursor-pointer"><input type="checkbox" data-aiclub="' + esc(l.id + ':' + t.id) + '"' + (isAi(l.id, t.id) ? ' checked' : '') + '>' + esc(t.name) + '</label>').join('') + '</div></div>').join('') + '</div></details>';
             }
@@ -5290,7 +5359,7 @@
                 transferOffers.list.forEach(o => { if (o.kind === 'swap' || o.kind === 'fa' || o.kind === 'buy') wantCount[o.inn] = (wantCount[o.inn] || 0) + 1; });
                 transferOffers.list.forEach(o => {
                     let body;
-                    if (o.kind === 'acad') body = '<div class="text-[11px] font-bold text-white">' + esc(nm(o.al, o.a)) + ' · 🎓 altyapıdan oyuncu</div><div class="text-[11px] text-slate-300">Yeni oyuncu: <b>' + esc(o.inn) + '</b> <span class="text-slate-500">(değer ' + ACADEMY_COST + 'M · bedel ' + ACADEMY_COST + 'M bütçeden · yedek kadroya girer)</span></div>';
+                    if (o.kind === 'acad') body = '<div class="text-[11px] font-bold text-white">' + esc(nm(o.al, o.a)) + ' · 🎓 altyapıdan oyuncu</div><div class="text-[11px] text-slate-300">Yeni oyuncu: <b>' + esc(o.inn) + '</b> <span class="text-slate-500">(değer ' + ACADEMY_COST + 'M · bedel ' + ACADEMY_COST + 'M bütçeden · boş mevkiye ya da yedeğe girer)</span></div>';
                     else if (o.kind === 'bid' && (o.log || []).length) body = '<div class="text-[11px] font-bold text-white">🏷️ Transfer yarışı: ' + esc(o.inn) + '</div><div class="text-[11px] text-slate-300">Kazanan: <b class="text-emerald-300">' + esc(nm(o.al, o.a)) + '</b>' + (o.my ? ' (senin takımın)' : '') + ' · <b>' + o.price + ' M</b>' + (o.b ? '<br>Satan takım: ' + esc(nm(o.bl, o.b)) + ' (parayı alır)' + (o.so > 0 ? '<br>🤝 Satış payı: sonraki satışta ' + esc(nm(o.bl, o.b)) + ' %' + o.so + ' alır' : '') : '<br>Serbest oyuncu (bedel bütçeden düşer)') + '<br><span class="text-slate-500">Teklifler: ' + o.log.map(x => esc(x.n) + ' ' + x.p).join(' → ') + '</span>' + (o.noCount ? '<br><span class="text-slate-500">Katılmayanlar (' + o.noCount + '): ' + o.no.map(esc).join(', ') + (o.noCount > o.no.length ? ' ...' : '') + '</span>' : '') + '</div>';
                     else if (o.kind === 'buy' || o.kind === 'bid') body = '<div class="text-[11px] font-bold text-white">💰 ' + esc(nm(o.al, o.a)) + (o.kind === 'bid' ? ' · direkt alım teklifi' : ' · nakit alım teklifi') + '</div><div class="text-[11px] text-slate-300">İstenen: ' + pl(o.inn, o.bl) + '<br>Satan: ' + esc(o.b ? nm(o.bl, o.b) : 'Serbest') + ' · bedel <b class="text-emerald-300">' + o.price + ' M</b> <span class="text-slate-500">(oyuncu verilmez, sadece bütçeden)</span>' + (o.so > 0 ? '<br>🤝 Satış payı: sonraki satışta ' + esc(nm(o.bl, o.b)) + ' %' + o.so + ' alır' : '') + '</div>';
                     else if (o.kind === 'swap') body = '<div class="text-[11px] font-bold text-white">' + esc(nm(o.al, o.a)) + ' ⇄ ' + esc(nm(o.bl, o.b)) + '</div><div class="text-[11px] text-slate-300">' + esc(nm(o.al, o.a)) + ' verir: ' + pl(o.out, o.al) + '<br>' + esc(nm(o.bl, o.b)) + ' verir: ' + pl(o.inn, o.bl) + (o.so > 0 ? '<br>🤝 ' + esc(nm(o.al, o.a)) + ', ' + esc(o.out) + ' sonraki satılırsa %' + o.so + ' alır' : '') + (o.so2 > 0 ? '<br>🤝 ' + esc(nm(o.bl, o.b)) + ', ' + esc(o.inn) + ' sonraki satılırsa %' + o.so2 + ' alır' : '') + '</div>';
@@ -5323,6 +5392,7 @@
                         '<div class="flex-1 min-w-0"><div class="text-sm font-black text-white truncate">' + esc(t.name) + '</div>' +
                         '<div class="text-[10px] text-slate-400 truncate">' + ROLES.map(r => ROLE_ICONS[r] + ' ' + esc((t.names && t.names[r]) || r)).join(' · ') + '</div>' +
                         ((t.bench && t.bench.length) ? '<div class="text-[10px] text-slate-500 mt-0.5">🪑 Yedek (' + t.bench.length + '): ' + t.bench.map(esc).join(', ') + '</div>' : '') +
+                        '<div class="text-[10px] ' + (squadSize(t) < MIN_SQUAD ? 'text-red-400' : 'text-slate-400') + ' mt-0.5">👥 Kadro: ' + squadSize(t) + ' / min ' + MIN_SQUAD + (squadSize(t) < MIN_SQUAD ? ' ⚠️ eksik' : '') + '</div>' +
                         '<div class="text-[10px] text-amber-300 mt-0.5">💰 Kadro değeri: ' + (Math.round(squadValue(L, t) * 10) / 10) + ' M</div>' +
                         '<div class="flex items-center gap-1.5 mt-0.5"><span class="text-[10px] text-emerald-300">💵 Bütçe</span><input type="number" min="0" step="0.5" data-budget="' + esc(t.id) + '" value="' + (Number.isFinite(t.budget) ? t.budget : '') + '" placeholder="0" class="w-20 px-2 py-0.5 rounded-lg bg-slate-800 border border-slate-700 text-[11px] font-bold text-white text-right"><span class="text-[10px] text-slate-500">M</span></div>' +
                         '<div class="flex items-center gap-1.5 mt-0.5"><span class="text-[10px] text-sky-300">🎓 Altyapı hakkı</span><input type="number" min="0" max="9" step="1" data-academy="' + esc(t.id) + '" value="' + ((t.academy | 0) || '') + '" placeholder="0" class="w-14 px-2 py-0.5 rounded-lg bg-slate-800 border border-slate-700 text-[11px] font-bold text-white text-right"><span class="text-[10px] text-slate-500">× ' + ACADEMY_COST + ' M</span>' + ((t.academy | 0) > 0 ? '<button type="button" data-act="acad" data-id="' + esc(t.id) + '" class="px-2 py-0.5 rounded-lg bg-sky-500/15 border border-sky-500/40 text-[10px] font-bold text-sky-300 cursor-pointer whitespace-nowrap">🎓 Çıkar</button>' : '') + '</div>' +
@@ -5794,6 +5864,7 @@
                 if (!tt) { renderLeague(); return; }
                 if (allPlayers(dst).includes(n)) { toast('⚠️ ' + dst.name + ' liginde aynı isimli oyuncu var'); renderLeague(); return; }
                 const fromT = src.teams.find(x => squadNames(x).includes(n));
+                if (fromT && squadSize(fromT) <= MIN_SQUAD) { toast('⚠️ ' + fromT.name + ' en az ' + MIN_SQUAD + ' oyuncuda kalmalı'); renderLeague(); return; }
                 if (!transferAcross(src, n, dst, tt.id)) { toast('⚠️ Yedek kadro dolu (12)'); renderLeague(); return; }
                 saveAll(A); pushTransfer({ kind: 'move', inn: n, a: tt.name + ' (' + dst.name + ')', b: fromT ? fromT.name + ' (' + src.name + ')' : 'Serbest' }); renderLeague(); toast('🔁 ' + n + ' → ' + tt.name + ' (' + dst.name + ')');
                 return;
@@ -5802,6 +5873,7 @@
                 const L = loadLeague(), n = e.target.getAttribute('data-xfer'), to = L.teams.find(x => x.id === e.target.value);
                 if (to && (to.bench || []).length >= 12 && !squadNames(to).includes(n)) { toast('⚠️ Yedek kadro dolu (12)'); renderLeague(); return; }
                 const fromT = L.teams.find(x => squadNames(x).includes(n));
+                if (fromT && (!to || fromT.id !== to.id) && squadSize(fromT) <= MIN_SQUAD) { toast('⚠️ ' + fromT.name + ' en az ' + MIN_SQUAD + ' oyuncuda kalmalı'); renderLeague(); return; }
                 transferPlayer(L, n, e.target.value);
                 if ((fromT || to) && !(fromT && to && fromT.id === to.id)) pushTransfer({ kind: 'move', inn: n, a: to ? to.name : 'Serbest', b: fromT ? fromT.name : 'Serbest' });
                 saveLeague(L); renderLeague(); toast('🔁 ' + n + ' → ' + (to ? to.name : 'Serbest'));
@@ -5951,11 +6023,23 @@
                 });
             } else if (act === 'mkoffers') {
                 const A = loadAll();
+                const ph = aiClubs.size ? aiSquadPhase(A) : { signed: 0, youth: 0, log: [] };   // önce min 4 kadro kuralı
                 let list = buildOffers(A), auto = 0;
-                if (aiClubs.size) { const r = autoAiDeals(A, list); list = r.keep; auto = r.n; if (auto) saveAll(A); }
+                if (aiClubs.size) { const r = autoAiDeals(A, list); list = r.keep; auto = r.n; }
+                // AI olmayan ama 4 oyuncunun altındaki kulüplere (senin kararın) tamamlama teklifi
+                const fa0 = freeAgentsOf(A), tk = takenNames(A);
+                list.forEach(x => tk.add(String(x.inn).toLocaleLowerCase('tr')));
+                allTeamsFlat(A).forEach(({ l, t }) => {
+                    if (isAi(l.id, t.id) || squadSize(t) >= MIN_SQUAD) return;
+                    const bd = Number.isFinite(t.budget) ? t.budget : Infinity;
+                    const c = fa0.filter(x => mvOf(x.l, x.n) <= bd && !list.some(y => y.inn === x.n))[0];
+                    if (c) list.push({ id: uid(), kind: 'bid', a: t.id, al: l.id, b: null, bl: c.l.id, inn: c.n, price: Math.max(0.5, mvOf(c.l, c.n)), so: 0 });
+                    else if (bd >= ACADEMY_COST) { const nm = randomYouthName(tk); if (nm) { tk.add(nm.toLocaleLowerCase('tr')); list.push({ id: uid(), kind: 'acad', a: t.id, al: l.id, inn: nm, price: ACADEMY_COST, ai: true }); } }
+                });
+                if (auto || ph.signed || ph.youth) saveAll(A);
                 transferOffers = { list };
                 renderLeague();
-                if (auto) toast('🤖 ' + auto + ' AI transferi gerçekleşti · ' + list.length + ' teklif senin kararını bekliyor');
+                if (auto || ph.signed || ph.youth) toast('🤖 AI: ' + auto + ' transfer · ' + ph.signed + ' serbest oyuncu · ' + ph.youth + ' altyapı · ' + list.length + ' teklif onayını bekliyor');
             } else if (act === 'haggle') {
                 const o = transferOffers && transferOffers.list.find(x => x.id === id);
                 if (!o) return;
