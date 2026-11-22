@@ -3625,6 +3625,13 @@
         function esc(s) {
             return String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
         }
+        // "Puanları Sıfırla" sonrası: tablolar/krallıklar sadece sıfırlamadan sonraki maçlardan; tecrübe, form ve oyuncu toplamları tüm maçlardan hesaplanır.
+        function seasonView(L) {
+            if (!L || !L.resetAt || L._full) return L;
+            const v = Object.assign({}, L, { matches: (L.matches || []).filter(m => (m.date || 0) >= L.resetAt) });
+            v._full = L;
+            return v;
+        }
         function computeTable(L) {
             const t = {};
             L.teams.forEach(x => { t[x.id] = { team: x, p: 0, w: 0, d: 0, l: 0, gf: 0, ga: 0, pts: 0 }; });
@@ -3779,7 +3786,8 @@
                 side: r.side === 'away' ? 'away' : 'home', home: String(r.home || '').slice(0, 24), away: String(r.away || '').slice(0, 24),
                 hs: r.hs | 0, as: r.as | 0, min: r.min | 0, clip: r.clip, from: String(r.from || '').slice(0, 24)
             }));
-            return { teams, matches, pool, reels };
+            const resetAt = Number.isFinite(+o.resetAt) && +o.resetAt > 0 ? +o.resetAt : 0;
+            return { teams, matches, pool, reels, resetAt };
         }
         // PURE-END
 
@@ -3994,7 +4002,7 @@
         function buildSummaryMd(A) {
             const out = ['# Haxball Ligleri - Güncel Özet', '', 'Oluşturulma: ' + new Date().toLocaleString('tr-TR'), '', 'Puan: galibiyet 3, beraberlik 1. Sıralama: puan, averaj, atılan gol, isim. Tecrübe yalnızca lig maçlarından hesaplanır.', ''];
             const cmp = (a, b) => a.localeCompare(b, 'tr');
-            const sections = A.leagues.map(L => ({ title: L.name, L, lig: true }));
+            const sections = A.leagues.map(L => ({ title: L.name, L: seasonView(L), lig: true }));
             const cup = loadCup();
             if (cup) {
                 const ms = [];
@@ -4060,7 +4068,7 @@
                 top(clean, 'Gol Yemeyen Maç (Kaleci)');
                 if (sec.lig) {
                     const exp = {};
-                    L.matches.forEach(m => (m.players || []).forEach(p => {
+                    (L._full || L).matches.forEach(m => (m.players || []).forEach(p => {
                         if (!(p.mn > 0)) return;
                         const k = p.n + '||' + p.r;
                         if (!exp[k]) exp[k] = { team: nm(ph(p.t === 'home' ? m.home : m.away, p.n)), name: p.n, role: p.r, v: 0 };
@@ -4182,6 +4190,7 @@
             return customZones.find(z => position >= Math.min(z.from, z.to) && position <= Math.max(z.from, z.to));
         }
         function viewTable(L) {
+            L = seasonView(L);
             if (!L.teams.length) return emptyBox('Henüz takım yok. Ayarlar ekranında takımını hazırla ve <b class="text-emerald-400">💾 Lige Kaydet</b>\'e bas.');
             const rows = computeTable(L);
             const n = rows.length;
@@ -4397,6 +4406,8 @@
         }
 
         function viewScorers(L, opt) {
+            const Lfull = (L && L._full) || L;
+            L = seasonView(L);
             const withExp = !(opt && opt.noExp);
             const byId = {};
             L.teams.forEach(t => byId[t.id] = t);
@@ -4425,13 +4436,14 @@
                 sec('⭐ Maçın Adamı', top(computeMotm(L), s => ({ tid: s.tid, name: s.name, v: s.v })), '⭐', 'text-yellow-300', 'Henüz maçın adamı yok.') +
                 sec('🧤 Gol Yemeyen Maç (Kaleci)', top(computeCleanSheets(L), s => ({ tid: s.tid, name: s.name, v: s.v })), '🧤', 'text-emerald-400', 'Henüz gol yemeyen maç yok.');
             if (withExp) {
-                const ex = computeExperience(L).map(s => ({ tid: s.tid, name: s.name, v: Math.round(s.v) + ' dk', sub: s.role + ' · ' + expLevel(s.v) + ' · bonus +' + (Math.min(0.06, s.v / 25000) * 100).toFixed(1) + '%' }));
+                const ex = computeExperience(Lfull).map(s => ({ tid: s.tid, name: s.name, v: Math.round(s.v) + ' dk', sub: s.role + ' · ' + expLevel(s.v) + ' · bonus +' + (Math.min(0.06, s.v / 25000) * 100).toFixed(1) + '%' }));
                 h += sec('🎓 Tecrübe Tablosu (mevki bazlı)', ex, '', 'text-orange-300', 'Henüz tecrübe birikmedi.', 'Her mevkide oynanan dakika birikir. 1500 dk (≈16 maç) ivme ve zekada en fazla %6 bonus verir (doğrusal artar). Bonus lig maçlarında uygulanır.');
             }
             return h + '<div class="text-[10px] text-slate-500 px-1">Krallıklar bu güncellemeden sonra oynanan maçlardan hesaplanır. Asist, maçın adamı ve gol yemeyen maç bu güncellemeden öncekilerde yoksa eksik kalabilir.</div>';
         }
 
         function viewHistory(L) {
+            L = seasonView(L);
             if (!L.matches.length) return reelsHtml(L) + emptyBox('Henüz oynanmış lig maçı yok.');
             const byId = {};
             L.teams.forEach(t => byId[t.id] = t);
@@ -4670,9 +4682,10 @@
                 const row = { title, v: {}, medals: [], apps: 0 };
                 cats.forEach(([k, label, fn]) => {
                     let sum = 0, rank = 0;
-                    fn(L).forEach((e, i) => { if (e.name === name) { sum += val(e); if (!rank) rank = i + 1; } });
+                    fn(L).forEach(e => { if (e.name === name) sum += val(e); });
+                    fn(seasonView(L)).forEach((e, i) => { if (e.name === name && !rank) rank = i + 1; });
                     row.v[k] = sum; tot[k] += sum;
-                    if (rank && rank <= 3 && sum > 0) row.medals.push(['🥇', '🥈', '🥉'][rank - 1] + ' ' + label + (rank === 1 ? ' Krallığı' : ' · ' + rank + '. sıra'));
+                    if (rank && rank <= 3) row.medals.push(['🥇', '🥈', '🥉'][rank - 1] + ' ' + label + (rank === 1 ? ' Krallığı' : ' · ' + rank + '. sıra'));
                 });
                 (L.matches || []).forEach(m => (m.players || []).forEach(p => {
                     if (p.n === name && p.mn > 0) { row.apps++; tot.apps++; tot.mn += p.mn; if (p.rt > 0) { tot.rt += p.rt; tot.rn++; } }
@@ -4702,7 +4715,7 @@
                 h += '<div class="text-[10px] font-bold uppercase tracking-wider text-slate-500">Ligler</div>' +
                     c.per.map(r => '<div class="flex items-center gap-2 text-[11px]"><span class="flex-1 min-w-0 truncate font-bold text-slate-200">' + esc(r.title) + '</span><span class="text-slate-400">⚽ ' + r.v.g + ' · 🅰️ ' + r.v.a + ' · ⭐ ' + r.v.m + ' · 🏟️ ' + r.apps + '</span></div>').join('');
             }
-            h += '<div class="text-[10px] text-slate-500">Sıralamalar şu anki lig tablolarına göre. Geçmiş sezonların krallıkları ayrıca tutulmuyor.</div></div>';
+            h += '<div class="text-[10px] text-slate-500">Toplamlar tüm zamanlar, krallık sıralaması güncel sezona göre (Puanları Sıfırla sonrası).</div></div>';
             const old = document.getElementById('playerSheet'); if (old) old.remove();
             const el = document.createElement('div');
             el.id = 'playerSheet'; el.className = 'fixed inset-0 z-[60] flex items-end bg-black/60'; el.innerHTML = h;
@@ -5132,8 +5145,8 @@
             } else if (act === 'import') {
                 document.getElementById('leagueImportInput').click();
             } else if (act === 'reset') {
-                if (confirm('Bu ligin tüm maç sonuçları silinsin mi? Takımlar kalır.')) {
-                    L.matches = [];
+                if (confirm('Puan tablosu ve krallıklar sıfırlansın mı? Oyuncuların gol, asist, kurtarış toplamları ve tecrübe korunur. Takımlar kalır.')) {
+                    L.resetAt = Date.now();
                     saveLeague(L);
                     renderLeague();
                     toast('Puan durumu sıfırlandı');
@@ -5157,7 +5170,7 @@
                 if (raw && Array.isArray(raw.leagues)) {
                     const leagues = raw.leagues.map(l => {
                         const d = sanitizeLeague(l);
-                        return d ? { id: String((l && l.id) || uid()), name: String((l && l.name) || 'Lig').slice(0, 24), teams: d.teams, matches: d.matches, pool: d.pool, reels: d.reels, zones: Array.isArray(l.zones) ? sanitizeZones(l.zones) : undefined, values: sanitizeValues(l.values) } : null;
+                        return d ? { id: String((l && l.id) || uid()), name: String((l && l.name) || 'Lig').slice(0, 24), teams: d.teams, matches: d.matches, pool: d.pool, reels: d.reels, resetAt: d.resetAt, zones: Array.isArray(l.zones) ? sanitizeZones(l.zones) : undefined, values: sanitizeValues(l.values) } : null;
                     }).filter(Boolean);
                     if (!leagues.length) { toast('⚠️ Geçersiz yedek dosyası'); return; }
                     if (confirm(leagues.length + ' lig yüklenecek. Mevcut TÜM ligler değiştirilsin mi?')) {
