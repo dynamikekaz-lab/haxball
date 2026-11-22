@@ -3831,6 +3831,7 @@
                 const o = JSON.parse(localStorage.getItem(LEAGUE_KEY) || 'null');
                 if (o && Array.isArray(o.leagues) && o.leagues.length) {
                     if (!o.leagues.some(l => l.id === o.active)) o.active = o.leagues[0].id;
+                    normalizeSquads(o);
                     return ensureZones(o);
                 }
                 if (o && Array.isArray(o.teams) && Array.isArray(o.matches)) {
@@ -3840,6 +3841,7 @@
             return ensureZones({ active: 'l1', leagues: [{ id: 'l1', name: 'Lig 1', teams: [], matches: [] }] });
         }
         function saveAll(A, quiet) {
+            normalizeSquads(A);
             try { localStorage.setItem(LEAGUE_KEY, JSON.stringify(A)); return true; }
             catch (e) { if (!quiet) toast('⚠️ Kaydedilemedi (depolama dolu olabilir)'); return false; }
         }
@@ -4747,6 +4749,63 @@
             t.names = t.names || {};
             const r = ROLES.find(x => !t.names[x] || DEFAULT_ROLE_NAMES.has(String(t.names[x]).trim().toLocaleLowerCase('tr')));
             if (r) t.names[r] = n; else t.bench = (t.bench || []).concat(n);
+        }
+        // Varsayılan mevki adı ("Kaleci", "Defans"...) duran slota, yedekteki en değerli oyuncuyu koyar (yedek yoksa olduğu gibi kalır)
+        // 🧭 MEVKİ HAFIZASI: oyuncunun tecrübesi (lig maçlarındaki mevki dakikaları) transfer sonrası da unutulmaz.
+        // Bir slotta varsayılan ad ("Kaleci"...) duruyorsa ya da orada oynayan oyuncunun o mevkide tecrübesi yoksa (%20 kuralı),
+        // takımın oyuncuları (ilk 4 + yedek) o takım için en uygun mevki dizilişine yeniden yerleştirilir.
+        // Skor: mevkiye uygunluk (tecrübe payı) + piyasa değeri + yerinde kalma. Tecrübesiz oyuncu her mevkiye uygun sayılır.
+        function normalizeSquads(A) {
+            let changed = false, em = null;
+            const lc = x => String(x || '').trim().toLocaleLowerCase('tr');
+            const isDef = n => !n || DEFAULT_ROLE_NAMES.has(lc(n));
+            const getEm = () => {
+                if (em) return em;
+                em = {};
+                (A.leagues || []).forEach(l => (l.matches || []).forEach(mt => (mt.players || []).forEach(p => {
+                    if (!p || !p.n || !p.r) return;
+                    const o = em[p.n] || (em[p.n] = {});
+                    o[p.r] = (o[p.r] || 0) + (p.mn || 0);
+                })));
+                return em;
+            };
+            const fit = (n, r) => {
+                const e = getEm()[n]; let tot = 0;
+                if (e) Object.keys(e).forEach(k => { tot += e[k]; });
+                if (!(tot > 0)) return 30;                         // tecrübesiz: her mevkiye uygun
+                const sh = (e[r] || 0) / tot;
+                return (sh >= ROLE_MIN_SHARE ? 100 : -100) + sh * 50;
+            };
+            try {
+                (A.leagues || []).forEach(l => (l.teams || []).forEach(t => {
+                    t.names = t.names || {};
+                    const slots = ROLES.map(r => t.names[r]);
+                    const bench = (t.bench || []).filter(n => n && !isDef(n));
+                    const need = ROLES.some((r, i) => isDef(slots[i]) ? bench.length > 0 : fit(slots[i], r) < 0);
+                    if (!need) return;
+                    const cands = Array.from(new Set(slots.filter(n => !isDef(n)).concat(bench)));
+                    let best = null, bestSum = -1e9;
+                    const cur = [], used = new Set();
+                    const rec = (i, sum) => {
+                        if (i === ROLES.length) { if (sum > bestSum) { bestSum = sum; best = cur.slice(); } return; }
+                        cands.forEach(n => {
+                            if (used.has(n)) return;
+                            used.add(n); cur[i] = n;
+                            rec(i + 1, sum + fit(n, ROLES[i]) + mvOf(l, n) * 0.5 + (slots[i] === n ? 15 : 0));
+                            used.delete(n); cur[i] = null;
+                        });
+                        cur[i] = null; rec(i + 1, sum - 150);        // slot boş kalırsa (oyuncu yetmiyorsa) ağır ceza
+                    };
+                    rec(0, 0);
+                    if (!best) return;
+                    const placed = new Set(best.filter(Boolean));
+                    const newBench = (t.bench || []).filter(n => !placed.has(n)).concat(slots.filter(n => !isDef(n) && !placed.has(n)));
+                    let diff = false;
+                    ROLES.forEach((r, i) => { const nn = best[i] || r; if (t.names[r] !== nn) { t.names[r] = nn; diff = true; } });
+                    if (diff || newBench.length !== (t.bench || []).length) { t.bench = Array.from(new Set(newBench)); changed = true; }
+                }));
+            } catch (e) {}
+            return changed;
         }
         const YOUTH_FIRST = ['Emre','Burak','Kaan','Arda','Mert','Efe','Yusuf','Can','Eren','Berk','Onur','Selim','Deniz','Baran','Ege','Kerem','Tolga','Cem','Ozan','Barış','Umut','Alp','Enes','Hakan','Oğuz','Taha','Ali','Veli','Koray','Murat','Emir','Çınar','Yiğit','Atlas','Rüzgar','Doruk','Poyraz','Aras','Mete','Işık','Bora','Tuna','Furkan','Ilker','Sinan','Kağan','Berat','Eymen','Metin','Nuri'];
         function allNamesEverywhere() {
