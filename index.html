@@ -5001,7 +5001,8 @@
             const start = Math.max(0.5, Math.round(mv0 * 2) / 2);
             const step = Math.max(0.5, Math.round(mv0 * 0.05 * 2) / 2);
             const bidders = [], declined = [];
-            allTeamsFlat(A).forEach(({ l, t }) => {
+            const allT = allTeamsFlat(A);
+            allT.forEach(({ l, t }) => {
                 if (hold.t && t === hold.t) return;
                 if (only && !only.has(l.id + ':' + t.id)) return;      // teklif veren takımlarla sınırlı yarış
                 if ((t.bench || []).length >= 12) return;
@@ -5026,17 +5027,138 @@
             if (!bidders.length) return null;
             let price = start - step, leader = null;
             const log = [];
+            const chat = [{ k: 'open', n: hold.t ? hold.t.name : 'Piyasa', c: hold.t ? hold.t.color : '#64748b', p: start }];
+            declined.slice(0, 4).forEach(n => { const r = allT.find(x => x.t.name === n); chat.push({ k: 'pass', n, c: r ? r.t.color : '#64748b' }); });
             for (let guard = 0; guard < 500; guard++) {
                 let raised = false;
                 shuffleArr(bidders.slice()).forEach(b => {
                     if (b === leader) return;
                     const np = Math.round((price + step) * 2) / 2;
-                    if (b.ceil >= np) { price = np; leader = b; log.push({ n: b.t.name, p: np }); raised = true; }
+                    if (b.ceil >= np) {
+                        chat.push({ k: 'bid', n: b.t.name, c: b.t.color, my: b.isMy, p: np, prev: leader ? leader.t.name : '' });
+                        price = np; leader = b; log.push({ n: b.t.name, p: np }); raised = true;
+                    } else if (!b.out) {
+                        b.out = true;
+                        chat.push({ k: 'out', n: b.t.name, c: b.t.color, my: b.isMy, p: price });
+                    }
                 });
                 if (!raised) break;
             }
             if (!leader) return null;
-            return { id: uid(), kind: 'bid', a: leader.t.id, al: leader.l.id, b: hold.t ? hold.t.id : null, bl: hold.l.id, inn: hold.n, price, my: leader.isMy, log: log.slice(-10), no: declined.slice(0, 12), noCount: declined.length };
+            chat.push({ k: 'win', n: leader.t.name, c: leader.t.color, my: leader.isMy, p: price });
+            return { id: uid(), kind: 'bid', a: leader.t.id, al: leader.l.id, b: hold.t ? hold.t.id : null, bl: hold.l.id, inn: hold.n, price, my: leader.isMy, log: log.slice(-10), chat, no: declined.slice(0, 12), noCount: declined.length };
+        }
+        // ===== 💬 YARIŞ MESAJ EKRANI: takımlar mesajlaşarak yarışır =====
+        function raceText(ev, player) {
+            const pick = a => a[Math.floor(Math.random() * a.length)], pr = ev.p + ' M';
+            if (ev.k === 'open') return pick(['🏷️ ' + player + ' için açılış fiyatı ' + pr + '. Teklifleri bekliyoruz!', 'Oyuncumuz ' + player + ' satışta, açılış ' + pr + '.']);
+            if (ev.k === 'pass') return pick(['Bu oyuncu bizim planda yok, geçiyoruz.', 'Bütçemiz uygun değil, yarışa girmiyoruz.', 'Kadromuzda zaten daha iyisi var.']);
+            if (ev.k === 'bid') return (ev.prev ? '@' + ev.prev + ' ' : '') + pick([pr + ' veriyorum!', 'Ben ' + pr + '’ye çıkıyorum 💪', pr + ', oyuncu bizim olacak.', 'Teklifi ' + pr + '’ye yükseltiyorum.', pr + '… devam edebilir misin? 😏']);
+            if (ev.k === 'out') return pick([pr + '’yi geçemem, çekiliyorum.', 'Bütçem bu kadar, bırakıyorum 🙌', 'Bu fiyata değmez, çekiliyorum.']);
+            return '🎉 ' + ev.n + ', ' + player + ' için ' + pr + ' ile yarışı kazandı!';
+        }
+        function raceBubble(ev, text) {
+            if (ev.k === 'win') return '<div class="text-center"><span class="inline-block px-3 py-1.5 rounded-full bg-emerald-500/15 border border-emerald-500/40 text-[11px] font-black text-emerald-300">' + esc(text) + '</span></div>';
+            const me = !!ev.my, col = /^#[0-9a-f]{6}$/i.test(ev.c || '') ? ev.c : '#64748b';
+            const av = '<div class="w-7 h-7 rounded-full shrink-0 flex items-center justify-center text-[11px] font-black text-white" style="background:' + col + '">' + esc(String(ev.n || '?').charAt(0).toUpperCase()) + '</div>';
+            const tone = ev.k === 'out' || ev.k === 'pass' ? 'bg-slate-800 text-slate-400' : (ev.k === 'open' ? 'bg-slate-700 text-slate-100' : (me ? 'bg-emerald-600/80 text-white' : 'bg-sky-900/70 text-slate-100'));
+            return '<div class="flex items-end gap-2 ' + (me ? 'flex-row-reverse' : '') + '">' + av + '<div class="max-w-[78%]"><div class="text-[10px] text-slate-500 ' + (me ? 'text-right' : '') + '">' + esc(ev.n) + (me ? ' (sen)' : '') + '</div><div class="px-3 py-1.5 rounded-2xl text-[12px] leading-snug ' + tone + '">' + esc(text) + '</div></div></div>';
+        }
+        function showRaceChat(res, onDone) {
+            const evs = res.chat || [];
+            if (!evs.length) { onDone && onDone(); return; }
+            let finished = false, i = 0, timer = null, typing = null;
+            const ov = document.createElement('div');
+            ov.className = 'fixed inset-0 z-[70] bg-black/75 flex items-center justify-center p-3';
+            ov.innerHTML = '<div class="w-full max-w-md h-[82vh] flex flex-col rounded-2xl bg-slate-900 border border-slate-700 shadow-2xl overflow-hidden">' +
+                '<div class="flex items-center justify-between gap-2 px-3 py-2 border-b border-slate-800 bg-slate-950/80"><div class="min-w-0"><div class="text-xs font-black text-white truncate">🏁 Transfer Yarışı · ' + esc(res.inn) + '</div><div class="text-[10px] text-slate-400">Takımlar mesajlaşarak yarışıyor</div></div>' +
+                '<div class="flex items-center gap-2"><span data-rc="price" class="px-2 py-0.5 rounded-full bg-amber-500/15 border border-amber-500/40 text-[11px] font-black text-amber-300">— M</span><button type="button" data-rc="close" class="w-7 h-7 rounded-full bg-slate-800 text-slate-300 text-xs cursor-pointer">✖</button></div></div>' +
+                '<div data-rc="msgs" class="flex-1 overflow-y-auto p-3 space-y-2"></div>' +
+                '<div class="p-2 border-t border-slate-800 flex gap-2"><button type="button" data-rc="skip" class="flex-1 py-2 rounded-lg bg-slate-800 border border-slate-700 text-[11px] font-bold text-slate-200 cursor-pointer">⏩ Atla</button><button type="button" data-rc="ok" class="hidden flex-1 py-2 rounded-lg bg-emerald-600/80 text-[11px] font-bold text-white cursor-pointer">✅ Sonucu onay listesine gönder</button></div></div>';
+            document.body.appendChild(ov);
+            const q = k => ov.querySelector('[data-rc="' + k + '"]');
+            const box = q('msgs');
+            const scroll = () => { box.scrollTop = box.scrollHeight; };
+            const add = ev => {
+                if (typing) { typing.remove(); typing = null; }
+                box.insertAdjacentHTML('beforeend', raceBubble(ev, raceText(ev, res.inn)));
+                if (ev.p != null && ev.k !== 'pass') q('price').textContent = ev.p + ' M';
+                scroll();
+            };
+            const finish = () => { q('skip').classList.add('hidden'); q('ok').classList.remove('hidden'); };
+            const close = () => { if (finished) return; finished = true; clearTimeout(timer); ov.remove(); onDone && onDone(); };
+            const next = () => {
+                if (finished) return;
+                if (i >= evs.length) { finish(); return; }
+                const ev = evs[i++];
+                if (ev.k !== 'win') { typing = document.createElement('div'); typing.className = 'text-[10px] text-slate-500 pl-9'; typing.textContent = '✍️ ' + ev.n + ' yazıyor…'; box.appendChild(typing); scroll(); }
+                timer = setTimeout(() => { add(ev); timer = setTimeout(next, 450); }, ev.k === 'win' ? 500 : 550 + Math.random() * 450);
+            };
+            q('skip').addEventListener('click', () => { clearTimeout(timer); while (i < evs.length) add(evs[i++]); finish(); });
+            q('ok').addEventListener('click', close);
+            q('close').addEventListener('click', close);
+            next();
+        }
+
+        // ===== 📜 TRANSFER GEÇMİŞİ: onaylanan her transfer burada kayıt altında =====
+        const TRANSFER_KEY = 'haxballTransfers';
+        function loadTransfers() { try { const a = JSON.parse(localStorage.getItem(TRANSFER_KEY) || '[]'); return Array.isArray(a) ? a : []; } catch (e) { return []; } }
+        function saveTransfers(a) { try { localStorage.setItem(TRANSFER_KEY, JSON.stringify(a.slice(-1500))); return true; } catch (e) { return false; } }
+        function sanitizeTransfers(arr) {
+            return (Array.isArray(arr) ? arr : []).filter(x => x && x.inn).slice(-1500).map(x => ({
+                id: String(x.id || uid()), at: Number.isFinite(+x.at) ? +x.at : 0, kind: String(x.kind || 'move').slice(0, 8),
+                inn: String(x.inn).slice(0, 10), out: String(x.out || '').slice(0, 10), price: Number.isFinite(+x.price) ? +x.price : 0,
+                so: Math.max(0, Math.min(50, +x.so || 0)), so2: Math.max(0, Math.min(50, +x.so2 || 0)),
+                a: String(x.a || '').slice(0, 40), b: String(x.b || '').slice(0, 40), race: !!x.race, note: String(x.note || '').slice(0, 80)
+            }));
+        }
+        function pushTransfer(e) {
+            try { const a = loadTransfers(); a.push(Object.assign({ id: uid(), at: Date.now(), out: '', price: 0, so: 0, so2: 0, a: '', b: '', race: false, note: '' }, e)); saveTransfers(a); } catch (err) {}
+        }
+        function logTransfer(A, o, note) {
+            const multi = A.leagues.length > 1;
+            const tn = (lid, tid) => { const r = findTeam(A, lid, tid); return r ? r.t.name + (multi ? ' (' + r.l.name + ')' : '') : '?'; };
+            pushTransfer({ kind: o.kind, inn: o.inn, out: o.out || '', price: o.price || 0, so: o.so || 0, so2: o.so2 || 0, a: tn(o.al, o.a), b: o.b ? tn(o.bl, o.b) : '', race: o.kind === 'bid' && (o.log || []).length > 0, note: note || '' });
+        }
+        function showTransferHistory() {
+            const ov = document.createElement('div');
+            ov.className = 'fixed inset-0 z-[70] bg-black/75 flex items-center justify-center p-3';
+            ov.innerHTML = '<div class="w-full max-w-md h-[85vh] flex flex-col rounded-2xl bg-slate-900 border border-slate-700 shadow-2xl overflow-hidden">' +
+                '<div class="flex items-center justify-between gap-2 px-3 py-2 border-b border-slate-800 bg-slate-950/80"><div><div class="text-xs font-black text-white">📜 Transfer Geçmişi</div><div data-th="sum" class="text-[10px] text-slate-400"></div></div><div class="flex items-center gap-2"><button type="button" data-th="clear" class="px-2 py-1 rounded-lg bg-slate-800 border border-slate-700 text-[10px] font-bold text-red-300 cursor-pointer">🗑️ Temizle</button><button type="button" data-th="close" class="w-7 h-7 rounded-full bg-slate-800 text-slate-300 text-xs cursor-pointer">✖</button></div></div>' +
+                '<div class="p-2 flex gap-2 border-b border-slate-800"><input data-th="q" type="text" placeholder="Oyuncu / takım ara…" class="flex-1 px-2 py-1.5 rounded-lg bg-slate-950 border border-slate-700 text-xs text-white">' +
+                '<select data-th="f" class="px-1.5 py-1.5 rounded-lg bg-slate-950 border border-slate-700 text-xs font-bold text-white"><option value="">Hepsi</option><option value="swap">Takas</option><option value="buy">Nakit alım</option><option value="race">Yarış</option><option value="direct">Direkt alım</option><option value="fa">Serbest</option><option value="acad">Altyapı</option><option value="move">Elle taşıma</option></select></div>' +
+                '<div data-th="list" class="flex-1 overflow-y-auto p-2 space-y-1.5"></div></div>';
+            document.body.appendChild(ov);
+            const q = k => ov.querySelector('[data-th="' + k + '"]');
+            const so = (n, who, pct) => pct > 0 ? '<br><span class="text-amber-300">🤝 ' + esc(who) + ', ' + esc(n) + ' sonraki satılırsa %' + pct + ' alır</span>' : '';
+            const draw = () => {
+                const all = loadTransfers(), term = String(q('q').value || '').trim().toLocaleLowerCase('tr'), f = q('f').value;
+                const rows = all.slice().reverse().filter(e => {
+                    if (f === 'race' && !(e.kind === 'bid' && e.race)) return false;
+                    if (f === 'direct' && !(e.kind === 'bid' && !e.race)) return false;
+                    if (f && f !== 'race' && f !== 'direct' && e.kind !== f) return false;
+                    return !term || [e.inn, e.out, e.a, e.b].some(x => String(x || '').toLocaleLowerCase('tr').includes(term));
+                });
+                const spent = all.reduce((t, e) => t + (e.price || 0), 0);
+                q('sum').textContent = all.length + ' transfer · toplam nakit ' + Math.round(spent * 10) / 10 + ' M' + (rows.length !== all.length ? ' · ' + rows.length + ' gösteriliyor' : '');
+                if (!rows.length) { q('list').innerHTML = '<div class="text-[11px] text-slate-500 text-center py-6">Kayıt yok. Onaylanan transferler burada birikir.</div>'; return; }
+                q('list').innerHTML = rows.slice(0, 300).map(e => {
+                    let head, det = '';
+                    if (e.kind === 'swap') { head = '🔄 Takas · ' + esc(e.a) + ' ⇄ ' + esc(e.b); det = esc(e.a) + ' verdi: <b>' + esc(e.out) + '</b><br>' + esc(e.b) + ' verdi: <b>' + esc(e.inn) + '</b>' + so(e.out, e.a, e.so) + so(e.inn, e.b, e.so2); }
+                    else if (e.kind === 'buy') { head = '💰 Nakit alım · ' + esc(e.inn); det = esc(e.b) + ' → <b>' + esc(e.a) + '</b> · ' + e.price + ' M' + so(e.inn, e.b, e.so); }
+                    else if (e.kind === 'bid') { head = (e.race ? '🏁 Yarış · ' : '⚡ Direkt alım · ') + esc(e.inn); det = esc(e.b || 'Serbest') + ' → <b>' + esc(e.a) + '</b> · ' + e.price + ' M' + so(e.inn, e.b || '', e.b ? e.so : 0); }
+                    else if (e.kind === 'fa') { head = '🆓 Serbest alım · ' + esc(e.inn); det = esc(e.a) + ' aldı, <b>' + esc(e.out) + '</b> ayrıldı'; }
+                    else if (e.kind === 'acad') { head = '🎓 Altyapı · ' + esc(e.inn); det = esc(e.a) + ' · ' + e.price + ' M'; }
+                    else { head = '🔁 Taşıma · ' + esc(e.inn); det = esc(e.b || 'Serbest') + ' → <b>' + esc(e.a || 'Serbest') + '</b>'; }
+                    const d = e.at ? new Date(e.at).toLocaleString('tr-TR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : '';
+                    return '<div class="rounded-xl bg-slate-800/70 border border-slate-700 p-2"><div class="flex items-start justify-between gap-2"><div class="text-[11px] font-bold text-white">' + head + '</div><div class="text-[9px] text-slate-500 whitespace-nowrap">' + esc(d) + '</div></div><div class="text-[11px] text-slate-300">' + det + (e.note ? '<br><span class="text-emerald-300">' + esc(e.note.replace(/^ · /, '')) + '</span>' : '') + '</div></div>';
+                }).join('');
+            };
+            q('q').addEventListener('input', draw);
+            q('f').addEventListener('change', draw);
+            q('close').addEventListener('click', () => ov.remove());
+            q('clear').addEventListener('click', () => { if (confirm('Tüm transfer geçmişi silinsin mi? Bu geri alınamaz.')) { saveTransfers([]); draw(); } });
+            draw();
         }
         function bidHtml() {
             const A = loadAll(), multi = A.leagues.length > 1;
@@ -5071,7 +5193,7 @@
             const multi = A.leagues.length > 1;
             let h = '<div class="rounded-2xl bg-slate-900/90 border border-slate-800 p-3 mt-3 space-y-2"><div class="flex items-center justify-between gap-2">' +
                 '<div class="text-[11px] font-semibold text-slate-400">🔁 Transfer Dönemi (tüm ligler)</div>' +
-                '<button type="button" data-act="mkoffers" class="px-2.5 py-1 rounded-lg bg-slate-800 border border-slate-700 text-[11px] font-bold text-emerald-300 cursor-pointer">🎲 Rastgele teklifler</button></div>';
+                '<div class="flex gap-1.5"><button type="button" data-act="thist" class="px-2.5 py-1 rounded-lg bg-slate-800 border border-slate-700 text-[11px] font-bold text-sky-300 cursor-pointer">📜 Geçmiş</button><button type="button" data-act="mkoffers" class="px-2.5 py-1 rounded-lg bg-slate-800 border border-slate-700 text-[11px] font-bold text-emerald-300 cursor-pointer">🎲 Rastgele teklifler</button></div></div>';
             if (transferOffers) {
                 const f = leagueFormMap(), ps = n => formScore(f.byName[n]).toFixed(1);
                 const nm = (lid, id) => { const r = findTeam(A, lid, id); return r ? r.t.name + (multi ? ' (' + r.l.name + ')' : '') : '?'; };
@@ -5581,14 +5703,17 @@
                 const tt = dst && dst.teams.find(x => x.id === parts[1]);
                 if (!tt) { renderLeague(); return; }
                 if (allPlayers(dst).includes(n)) { toast('⚠️ ' + dst.name + ' liginde aynı isimli oyuncu var'); renderLeague(); return; }
+                const fromT = src.teams.find(x => squadNames(x).includes(n));
                 if (!transferAcross(src, n, dst, tt.id)) { toast('⚠️ Yedek kadro dolu (12)'); renderLeague(); return; }
-                saveAll(A); renderLeague(); toast('🔁 ' + n + ' → ' + tt.name + ' (' + dst.name + ')');
+                saveAll(A); pushTransfer({ kind: 'move', inn: n, a: tt.name + ' (' + dst.name + ')', b: fromT ? fromT.name + ' (' + src.name + ')' : 'Serbest' }); renderLeague(); toast('🔁 ' + n + ' → ' + tt.name + ' (' + dst.name + ')');
                 return;
             }
             if (e.target.hasAttribute && e.target.hasAttribute('data-xfer')) {
                 const L = loadLeague(), n = e.target.getAttribute('data-xfer'), to = L.teams.find(x => x.id === e.target.value);
                 if (to && (to.bench || []).length >= 12 && !squadNames(to).includes(n)) { toast('⚠️ Yedek kadro dolu (12)'); renderLeague(); return; }
+                const fromT = L.teams.find(x => squadNames(x).includes(n));
                 transferPlayer(L, n, e.target.value);
+                if ((fromT || to) && !(fromT && to && fromT.id === to.id)) pushTransfer({ kind: 'move', inn: n, a: to ? to.name : 'Serbest', b: fromT ? fromT.name : 'Serbest' });
                 saveLeague(L); renderLeague(); toast('🔁 ' + n + ' → ' + (to ? to.name : 'Serbest'));
                 return;
             }
@@ -5703,7 +5828,7 @@
                     if (!my) { toast('Benim takımım alanından bir takım seç'); return; }
                     if (!Number.isFinite(amt) || amt < 0) { toast('Teklif tutarını yaz'); return; }
                     const o = { id: uid(), kind: 'bid', a: my.t.id, al: my.l.id, b: hold.t ? hold.t.id : null, bl: hold.l.id, inn: hold.n, price: Math.round(amt * 10) / 10, my: true, log: [], so: hold.t ? (parseInt(bidForm.so, 10) || 0) : 0 };
-                    if (applyOffer(A, o) && saveAll(A)) { renderLeague(); toast('⚡ ' + hold.n + ' → ' + my.t.name + ' · ' + o.price + ' M' + lastSellOnMsg); }
+                    if (applyOffer(A, o) && saveAll(A)) { logTransfer(A, o, lastSellOnMsg); renderLeague(); toast('⚡ ' + hold.n + ' → ' + my.t.name + ' · ' + o.price + ' M' + lastSellOnMsg); }
                     else toast('⚠️ Olmadı: bütçe yetmiyor ya da yedek kadro dolu (12)');
                     return;
                 }
@@ -5711,14 +5836,18 @@
                 const res = runAuction(A, hold, my, my ? amt : 0);
                 if (!res) { toast('🏷️ Kimse teklif vermedi (bütçe ya da ilgi yok)'); return; }
                 res.so = hold.t ? (parseInt(bidForm.so, 10) || 0) : 0;
-                transferOffers = transferOffers || { list: [] };
-                transferOffers.list.push(res);
-                renderLeague();
-                const wr = findTeam(A, res.al, res.a);
-                toast('🏷️ Yarış bitti: ' + (wr ? wr.t.name : '?') + ' ' + res.price + ' M · onayını bekliyor');
+                showRaceChat(res, () => {
+                    transferOffers = transferOffers || { list: [] };
+                    transferOffers.list.push(res);
+                    renderLeague();
+                    const wr = findTeam(A, res.al, res.a);
+                    toast('🏷️ Yarış bitti: ' + (wr ? wr.t.name : '?') + ' ' + res.price + ' M · onayını bekliyor');
+                });
             } else if (act === 'mkoffers') {
                 transferOffers = { list: buildOffers(loadAll()) };
                 renderLeague();
+            } else if (act === 'thist') {
+                showTransferHistory();
             } else if (act === 'offerrace') {
                 const o = transferOffers && transferOffers.list.find(x => x.id === id);
                 if (!o) return;
@@ -5733,18 +5862,20 @@
                 if (!res) { toast('🏁 Kimse yarışa giremedi (bütçe yetmedi ya da yedek kadro dolu)'); return; }
                 const wo = group.find(x => x.al === res.al && x.a === res.a);
                 res.so = wo ? ((wo.kind === 'swap' ? wo.so2 : wo.so) || 0) : 0;                              // kazanan takımın teklifindeki satış payı şartı geçer
-                transferOffers.list = transferOffers.list.filter(x => !group.includes(x));
-                transferOffers.list.push(res);
-                renderLeague();
-                const wr = findTeam(A, res.al, res.a);
-                toast('🏁 Yarış bitti: ' + (wr ? wr.t.name : '?') + ' ' + res.price + ' M · onayını bekliyor');
+                showRaceChat(res, () => {
+                    transferOffers.list = transferOffers.list.filter(x => !group.includes(x));
+                    transferOffers.list.push(res);
+                    renderLeague();
+                    const wr = findTeam(A, res.al, res.a);
+                    toast('🏁 Yarış bitti: ' + (wr ? wr.t.name : '?') + ' ' + res.price + ' M · onayını bekliyor');
+                });
             } else if (act === 'offeryes') {
                 const o = transferOffers && transferOffers.list.find(x => x.id === id);
                 if (o) {
                     const A = loadAll();
                     const ok = applyOffer(A, o);
                     transferOffers.list = transferOffers.list.filter(x => x.id !== id && !(ok && o.kind !== 'acad' && x.kind !== 'acad' && x.inn === o.inn));
-                    if (ok) saveAll(A);
+                    if (ok) { saveAll(A); logTransfer(A, o, lastSellOnMsg); }
                     renderLeague(); toast(ok ? '✅ Transfer tamamlandı' + lastSellOnMsg : '⚠️ Teklif artık geçerli değil (bütçe, kadro ya da oyuncu değişmiş)');
                 }
             } else if (act === 'offerno') {
@@ -5815,7 +5946,7 @@
                 window.scrollTo(0, 0);
                 toast('✏️ ' + t.name + ' Ev Sahibi kartına yüklendi. Aynı isimle kaydedersen güncellenir.');
             } else if (act === 'export') {
-                const blob = new Blob([JSON.stringify(Object.assign(loadAll(), { tournament: loadCup(), hall: loadHall() }))], { type: 'application/json' });
+                const blob = new Blob([JSON.stringify(Object.assign(loadAll(), { tournament: loadCup(), hall: loadHall(), transfers: loadTransfers() }))], { type: 'application/json' });
                 const url = URL.createObjectURL(blob);
                 const a = document.createElement('a');
                 a.href = url;
@@ -5871,6 +6002,7 @@
                         const act = leagues.some(l => l.id === raw.active) ? raw.active : leagues[0].id;
                         if (saveAll({ active: act, leagues })) {
                             if (raw.tournament && Array.isArray(raw.tournament.rounds)) saveCup(raw.tournament);
+                            if (Array.isArray(raw.transfers)) saveTransfers(sanitizeTransfers(raw.transfers));
                             if (raw.hall && typeof raw.hall === 'object') saveHall(sanitizeHall(raw.hall));
                             else if (raw.goalOfYear && typeof raw.goalOfYear.clip === 'string') { const hh = loadHall(); hh.goals[String(raw.goalOfYear.year || 2026)] = raw.goalOfYear; saveHall(hh); }
                             leagueSel.home = leagueSel.away = null; renderLeague(); toast('✅ Yedek yüklendi');
