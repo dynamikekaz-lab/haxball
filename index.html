@@ -4411,7 +4411,7 @@
                     const t = byId[s.tid];
                     h += '<div class="flex items-center gap-2 px-3 py-2 border-t border-slate-800 first:border-t-0">' +
                         '<span class="w-5 text-xs font-bold text-slate-400">' + (i + 1) + '</span>' + teamBadge(t, 22) +
-                        '<div class="flex-1 min-w-0"><div class="text-xs font-bold text-white truncate">' + esc(s.name) + '</div><div class="text-[10px] text-slate-400 truncate">' + esc(s.sub || t.name) + '</div></div>' +
+                        '<div class="flex-1 min-w-0 cursor-pointer" data-act="player" data-id="' + esc(s.name) + '"><div class="text-xs font-bold text-white truncate">' + esc(s.name) + '</div><div class="text-[10px] text-slate-400 truncate">' + esc(s.sub || t.name) + '</div></div>' +
                         '<span class="text-sm font-black ' + color + '">' + s.v + ' ' + icon + '</span></div>';
                 });
                 return h + '</div></div>';
@@ -4497,7 +4497,7 @@
                 '<button type="button" data-act="addplayer" class="px-3 py-2 rounded-lg bg-slate-800 border border-slate-700 text-[11px] font-bold text-emerald-300 cursor-pointer">➕ Oluştur</button></div>';
             list.forEach(n => {
                 const cur = teamOfPlayer(L, n);
-                h += '<div class="flex items-center gap-2"><span class="flex-1 min-w-0 text-xs font-bold text-white truncate">' + esc(n) + '</span>' +
+                h += '<div class="flex items-center gap-2"><span class="flex-1 min-w-0 text-xs font-bold text-white truncate cursor-pointer" data-act="player" data-id="' + esc(n) + '">' + esc(n) + '</span>' +
                     '<select data-xfer="' + esc(n) + '" class="w-32 px-2 py-1 rounded-lg bg-slate-800 border border-slate-700 text-[11px] font-bold text-white"><option value="">Serbest</option>' +
                     L.teams.map(t => '<option value="' + esc(t.id) + '"' + (cur && cur.id === t.id ? ' selected' : '') + '>' + esc(t.name) + '</option>').join('') + '</select>' +
                     (cur ? '' : '<button type="button" data-act="delplayer" data-id="' + esc(n) + '" class="text-[11px] text-red-400 cursor-pointer">🗑️</button>') + '</div>';
@@ -4649,6 +4649,65 @@
             let hs = 0, as = 0;
             m.scorers.forEach((s, i) => { if (i <= gi) { if (s.team === 'home') hs++; else as++; } });
             return playGoalClip(th, ta, sc, hs, as, frames);
+        }
+        // OYUNCU KARTI: gelmiş geçmiş tüm ligler + turnuva toplamı ve krallık sıralamaları
+        function playerCareer(name) {
+            const A = loadAll();
+            const sets = A.leagues.map(l => ({ title: l.name, L: l }));
+            try {
+                const c = loadCup();
+                if (c && c.rounds && c.teams) {
+                    const ps = { teams: Object.values(c.teams), matches: [] };
+                    c.rounds.forEach(r => r.forEach(m => { if (m.done && !m.bye) ps.matches.push({ home: m.a, away: m.b, hg: m.ga, ag: m.gb, scorers: m.scorers || [], players: m.players || [], motm: m.motm || null }); }));
+                    sets.push({ title: 'Turnuva', L: ps });
+                }
+            } catch (e) {}
+            const val = e => (e.v !== undefined ? e.v : e.g);
+            const cats = [['g', '⚽ Gol', computeScorers], ['a', '🅰️ Asist', computeAssists], ['m', '⭐ Maçın Adamı', computeMotm], ['s', '🧤 Kurtarış', computeSaves], ['d', '🛡️ Savunma', computeDefense], ['c', '🧤 Gol yemeyen maç', computeCleanSheets]];
+            const tot = { g: 0, a: 0, m: 0, s: 0, d: 0, c: 0, apps: 0, mn: 0, rt: 0, rn: 0 };
+            const per = [];
+            sets.forEach(({ title, L }) => {
+                const row = { title, v: {}, medals: [], apps: 0 };
+                cats.forEach(([k, label, fn]) => {
+                    let sum = 0, rank = 0;
+                    fn(L).forEach((e, i) => { if (e.name === name) { sum += val(e); if (!rank) rank = i + 1; } });
+                    row.v[k] = sum; tot[k] += sum;
+                    if (rank && rank <= 3 && sum > 0) row.medals.push(['🥇', '🥈', '🥉'][rank - 1] + ' ' + label + (rank === 1 ? ' Krallığı' : ' · ' + rank + '. sıra'));
+                });
+                (L.matches || []).forEach(m => (m.players || []).forEach(p => {
+                    if (p.n === name && p.mn > 0) { row.apps++; tot.apps++; tot.mn += p.mn; if (p.rt > 0) { tot.rt += p.rt; tot.rn++; } }
+                }));
+                if (row.apps || Object.values(row.v).some(x => x > 0)) per.push(row);
+            });
+            return { tot, per };
+        }
+        function showPlayer(name) {
+            const c = playerCareer(name), tot = c.tot;
+            const Lc = loadLeague(), team = teamOfPlayer(Lc, name);
+            const yg = Object.values(loadHall().goals).filter(g => g && g.name === name).length;
+            const cell = (label, v) => '<div class="rounded-xl bg-slate-800/80 border border-slate-700 px-2 py-2 text-center"><div class="text-base font-black text-white">' + v + '</div><div class="text-[10px] text-slate-400">' + label + '</div></div>';
+            let h = '<div class="w-full max-h-[85vh] overflow-y-auto rounded-t-3xl bg-slate-900 border-t border-slate-700 p-4 space-y-3">' +
+                '<div class="flex items-center gap-2"><div class="flex-1 min-w-0"><div class="text-lg font-black text-white truncate">' + esc(name) + '</div>' +
+                '<div class="text-[11px] text-slate-400 truncate">' + (team ? esc(team.name) : 'Takımsız') + (yg ? ' · 🏅 ' + yg + ' kez Yılın Golü' : '') + '</div></div>' +
+                '<button type="button" data-close="1" class="px-2 py-1 rounded-lg bg-slate-800 border border-slate-700 text-slate-300 text-xs font-bold cursor-pointer">✖</button></div>' +
+                '<div class="text-[10px] font-bold uppercase tracking-wider text-slate-500">Gelmiş geçmiş (tüm ligler + turnuva)</div>' +
+                '<div class="grid grid-cols-3 gap-2">' + cell('⚽ Gol', tot.g) + cell('🅰️ Asist', tot.a) + cell('⭐ Maçın adamı', tot.m) +
+                cell('🧤 Kurtarış', tot.s) + cell('🛡️ Savunma', tot.d) + cell('🧤 Gol yemeyen', tot.c) +
+                cell('🏟️ Maç', tot.apps) + cell('⏱️ Dakika', Math.round(tot.mn)) + cell('📈 Ort. reyting', tot.rn ? (tot.rt / tot.rn).toFixed(1) : '-') + '</div>';
+            const medals = [];
+            c.per.forEach(r => r.medals.forEach(m => medals.push(m + ' · ' + r.title)));
+            h += '<div class="text-[10px] font-bold uppercase tracking-wider text-slate-500">👑 Krallıklar (ilk 3)</div>' +
+                (medals.length ? '<div class="space-y-1">' + medals.map(m => '<div class="text-xs font-bold text-amber-200">' + esc(m) + '</div>').join('') + '</div>' : '<div class="text-[11px] text-slate-500">Henüz ilk 3\'e girdiği bir krallık yok.</div>');
+            if (c.per.length) {
+                h += '<div class="text-[10px] font-bold uppercase tracking-wider text-slate-500">Ligler</div>' +
+                    c.per.map(r => '<div class="flex items-center gap-2 text-[11px]"><span class="flex-1 min-w-0 truncate font-bold text-slate-200">' + esc(r.title) + '</span><span class="text-slate-400">⚽ ' + r.v.g + ' · 🅰️ ' + r.v.a + ' · ⭐ ' + r.v.m + ' · 🏟️ ' + r.apps + '</span></div>').join('');
+            }
+            h += '<div class="text-[10px] text-slate-500">Sıralamalar şu anki lig tablolarına göre. Geçmiş sezonların krallıkları ayrıca tutulmuyor.</div></div>';
+            const old = document.getElementById('playerSheet'); if (old) old.remove();
+            const el = document.createElement('div');
+            el.id = 'playerSheet'; el.className = 'fixed inset-0 z-[60] flex items-end bg-black/60'; el.innerHTML = h;
+            el.addEventListener('click', e => { if (e.target === el || e.target.closest('[data-close]')) el.remove(); });
+            document.body.appendChild(el);
         }
         // GOL ARŞİVİ + YILIN GOLÜ
         const YG_KEY = 'haxballGoalOfYear';
@@ -4997,6 +5056,8 @@
                 cur.reels = cur.reels.slice(-150);
                 if (saveAll(A)) { renderLeague(); toast('✅ ' + t.name + ' bu lige alındı' + (nr ? ' · ' + nr + ' gol tekrarı' : '') + (nv ? ' · ' + nv + ' değer' : '')); }
                 else toast('⚠️ Kaydedilemedi (depolama dolu olabilir)');
+            } else if (act === 'player') {
+                showPlayer(id);
             } else if (act === 'watchyg') {
                 watchReel(loadHall().goals[el.getAttribute('data-y')]);
             } else if (act === 'watchreel') {
