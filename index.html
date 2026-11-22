@@ -4925,7 +4925,7 @@
             const mv0 = mvOf(hold.l, hold.n);
             const start = Math.max(0.5, Math.round(mv0 * 2) / 2);
             const step = Math.max(0.5, Math.round(mv0 * 0.05 * 2) / 2);
-            const bidders = [];
+            const bidders = [], declined = [];
             allTeamsFlat(A).forEach(({ l, t }) => {
                 if (hold.t && t === hold.t) return;
                 if ((t.bench || []).length >= 12) return;
@@ -4933,12 +4933,19 @@
                 let ceil;
                 if (isMy) ceil = maxBid;
                 else {
-                    if (Math.random() < 0.3) return;   // her takım ilgilenmez
+                    // Katılma ihtimali takıma göre değişir: bütçesi dar takım ve kadrosunda zaten daha iyileri olan takım daha az ilgilenir
+                    const sq = squadNames(t);
+                    const avg = sq.length ? sq.reduce((a, n) => a + formScore(f.byName[n]), 0) / sq.length : 0;
+                    const budF = Number.isFinite(t.budget) ? Math.min(1, 0.4 + (t.budget / start) / 6) : 1;
+                    const needF = (!sq.length || ps >= avg) ? 1 : 0.6;
+                    const pJoin = Math.max(0.15, Math.min(0.9, 0.75 * budF * needF));
+                    if (Math.random() > pJoin) { declined.push(t.name); return; }
                     ceil = start * (0.9 + Math.random() * 0.7) * (1 + (ps - 6) * 0.05);
                 }
                 if (Number.isFinite(t.budget)) ceil = Math.min(ceil, t.budget);
                 ceil = Math.floor(ceil * 2) / 2;
                 if (ceil >= start) bidders.push({ l, t, ceil, isMy });
+                else declined.push(t.name);
             });
             if (!bidders.length) return null;
             let price = start - step, leader = null;
@@ -4953,7 +4960,7 @@
                 if (!raised) break;
             }
             if (!leader) return null;
-            return { id: uid(), kind: 'bid', a: leader.t.id, al: leader.l.id, b: hold.t ? hold.t.id : null, bl: hold.l.id, inn: hold.n, price, my: leader.isMy, log: log.slice(-10) };
+            return { id: uid(), kind: 'bid', a: leader.t.id, al: leader.l.id, b: hold.t ? hold.t.id : null, bl: hold.l.id, inn: hold.n, price, my: leader.isMy, log: log.slice(-10), no: declined.slice(0, 12), noCount: declined.length };
         }
         function bidHtml() {
             const A = loadAll(), multi = A.leagues.length > 1;
@@ -4980,7 +4987,7 @@
                 '<div class="grid grid-cols-2 gap-2">' +
                 '<button type="button" data-act="bidstart" class="py-2 rounded-lg bg-slate-800 border border-slate-700 text-[11px] font-bold text-amber-300 cursor-pointer">🏁 Yarışı başlat</button>' +
                 '<button type="button" data-act="bidmine" class="py-2 rounded-lg bg-slate-800 border border-slate-700 text-[11px] font-bold text-emerald-300 cursor-pointer">⚡ Direkt al</button></div>' +
-                '<div class="text-[10px] text-slate-500">🏁 Yarış: açılış fiyatı oyuncunun değeri, takımlar 0,5 M’lik adımlarla yükseltir; en yüksek veren alır. Sen de takımınla katılırsan teklifin senin tavanın olur. Sonuç “Transfer Dönemi” kutusuna onayına düşer. ⚡ Direkt al: seçtiğin takım yazdığın tutarı hemen öder, satan takım parayı alır.</div></div>';
+                '<div class="text-[10px] text-slate-500">🏁 Yarış: açılış fiyatı oyuncunun değeri, takımlar 0,5 M’lik adımlarla yükseltir; en yüksek veren alır. Her takım yarışa katılmayabilir (bütçesi dar ya da kadrosunda zaten daha iyisi varsa ihtimal düşer). Sen de takımınla katılırsan teklifin senin tavanın olur. Sonuç “Transfer Dönemi” kutusuna onayına düşer. ⚡ Direkt al: seçtiğin takım yazdığın tutarı hemen öder, satan takım parayı alır.</div></div>';
         }
         function offersHtml(L) {
             const A = loadAll();
@@ -4996,7 +5003,7 @@
                 transferOffers.list.forEach(o => {
                     let body;
                     if (o.kind === 'acad') body = '<div class="text-[11px] font-bold text-white">' + esc(nm(o.al, o.a)) + ' · 🎓 altyapıdan oyuncu</div><div class="text-[11px] text-slate-300">Yeni oyuncu: <b>' + esc(o.inn) + '</b> <span class="text-slate-500">(değer ' + ACADEMY_COST + 'M · bedel ' + ACADEMY_COST + 'M bütçeden · yedek kadroya girer)</span></div>';
-                    else if (o.kind === 'bid') body = '<div class="text-[11px] font-bold text-white">🏷️ Transfer yarışı: ' + esc(o.inn) + '</div><div class="text-[11px] text-slate-300">Kazanan: <b class="text-emerald-300">' + esc(nm(o.al, o.a)) + '</b>' + (o.my ? ' (senin takımın)' : '') + ' · <b>' + o.price + ' M</b>' + (o.b ? '<br>Satan takım: ' + esc(nm(o.bl, o.b)) + ' (parayı alır)' : '<br>Serbest oyuncu (bedel bütçeden düşer)') + '<br><span class="text-slate-500">Teklifler: ' + o.log.map(x => esc(x.n) + ' ' + x.p).join(' → ') + '</span></div>';
+                    else if (o.kind === 'bid') body = '<div class="text-[11px] font-bold text-white">🏷️ Transfer yarışı: ' + esc(o.inn) + '</div><div class="text-[11px] text-slate-300">Kazanan: <b class="text-emerald-300">' + esc(nm(o.al, o.a)) + '</b>' + (o.my ? ' (senin takımın)' : '') + ' · <b>' + o.price + ' M</b>' + (o.b ? '<br>Satan takım: ' + esc(nm(o.bl, o.b)) + ' (parayı alır)' : '<br>Serbest oyuncu (bedel bütçeden düşer)') + '<br><span class="text-slate-500">Teklifler: ' + o.log.map(x => esc(x.n) + ' ' + x.p).join(' → ') + '</span>' + (o.noCount ? '<br><span class="text-slate-500">Katılmayanlar (' + o.noCount + '): ' + o.no.map(esc).join(', ') + (o.noCount > o.no.length ? ' ...' : '') + '</span>' : '') + '</div>';
                     else if (o.kind === 'swap') body = '<div class="text-[11px] font-bold text-white">' + esc(nm(o.al, o.a)) + ' ⇄ ' + esc(nm(o.bl, o.b)) + '</div><div class="text-[11px] text-slate-300">' + esc(nm(o.al, o.a)) + ' verir: ' + pl(o.out, o.al) + '<br>' + esc(nm(o.bl, o.b)) + ' verir: ' + pl(o.inn, o.bl) + '</div>';
                     else body = '<div class="text-[11px] font-bold text-white">' + esc(nm(o.al, o.a)) + ' · serbest oyuncu alımı</div><div class="text-[11px] text-slate-300">Gelir: ' + pl(o.inn, o.il) + '<br>Ayrılır: ' + pl(o.out, o.al) + '</div>';
                     h += '<div class="rounded-xl bg-slate-800/70 border border-slate-700 p-2 space-y-1">' + body +
