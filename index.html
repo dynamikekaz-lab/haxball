@@ -3737,7 +3737,8 @@
                     logo: (typeof t.logo === 'string' && t.logo.indexOf('data:image/') === 0) ? t.logo : null,
                     names,
                     captain: (typeof t.captain === 'string' && t.captain) ? t.captain.slice(0, 10) : null,
-                    bench: (Array.isArray(t.bench) ? t.bench : []).map(x => String(x).trim().slice(0, 10)).filter(Boolean).slice(0, 12)
+                    bench: (Array.isArray(t.bench) ? t.bench : []).map(x => String(x).trim().slice(0, 10)).filter(Boolean).slice(0, 12),
+                    budget: (t.budget !== undefined && t.budget !== null && Number.isFinite(+t.budget)) ? Math.round(+t.budget * 10) / 10 : undefined
                 };
             });
             const ids = new Set(teams.map(t => t.id));
@@ -3844,13 +3845,14 @@
         function activeLeague(A) { return A.leagues.find(l => l.id === A.active) || A.leagues[0]; }
         function loadLeague() {
             const l = activeLeague(loadAll());
-            return { teams: l.teams, matches: l.matches, values: l.values || {} };
+            return Object.assign({}, l, { values: l.values || {} });
         }
         function saveLeague(L) {
             const A = loadAll();
             const l = activeLeague(A);
             l.teams = L.teams;
             l.matches = L.matches;
+            ['pool', 'reels', 'resetAt', 'values'].forEach(k => { if (k in L) l[k] = L[k]; });
             return saveAll(A);
         }
 
@@ -4127,6 +4129,7 @@
             if (!lg) { note.classList.add('hidden'); return; }
             if (matchState.recorded) return;
             if (lg.cup) { recordCupMatch(lg); return; }
+            if (lg.po) { recordPlayoffMatch(lg); return; }
             const A = loadAll();
             const L = A.leagues.find(l => l.id === lg.league) || activeLeague(A);
             if (!L.teams.some(t => t.id === lg.home) || !L.teams.some(t => t.id === lg.away)) {
@@ -4225,6 +4228,7 @@
             });
             h += '</div>';
             h += '<div class="text-[10px] mt-2 px-1" style="color:#64748b">O: oynanan, G: galibiyet, B: beraberlik, M: mağlubiyet, AV: averaj, P: puan</div>';
+            h += seasonPanelHtml(L);
             return h;
         }
 
@@ -4484,7 +4488,7 @@
             const names = [];
             L.teams.forEach(t => squadNames(t).forEach(n => { if (!names.includes(n)) names.push(n); }));
             if (!names.length) return '';
-            let h = '<div class="rounded-2xl bg-slate-900/90 border border-slate-800 p-3 mt-3 space-y-2"><div class="text-[11px] font-semibold text-slate-400">💰 Piyasa Değerleri (M) · sen belirlersin</div>';
+            let h = '<div class="rounded-2xl bg-slate-900/90 border border-slate-800 p-3 mt-3 space-y-2"><div class="flex items-center justify-between gap-2"><div class="text-[11px] font-semibold text-slate-400">💰 Piyasa Değerleri (M) · sen belirlersin</div><button type="button" data-act="aivalues" class="px-2 py-1 rounded-lg bg-slate-800 border border-slate-700 text-[10px] font-bold text-sky-300 cursor-pointer whitespace-nowrap">🤖 YZ ayarla</button></div>';
             L.teams.forEach(t => {
                 const sq = squadNames(t);
                 if (!sq.length) return;
@@ -4495,6 +4499,218 @@
                 });
             });
             return h + '<div class="text-[10px] text-slate-500">Değeri değiştirdikten sonra alandan çıkman yeterli. Değer isme bağlıdır; aynı isim tüm takımlarda aynı değeri alır.</div></div>';
+        }
+
+        // ======================= SEZON SONU: YÜKSELME / DÜŞME / PLAY-OFF / BÜTÇE =======================
+        function numSet(v, def, mn, mx) { return (v !== undefined && v !== null && Number.isFinite(+v)) ? Math.max(mn, Math.min(mx, +v)) : def; }
+        function lgSet(X) {
+            return { upper: X.upper || '', promo: numSet(X.promo, 1, 0, 8), playoff: X.playoff !== false, relegate: numSet(X.relegate, 2, 0, 8), budgetTop: numSet(X.budgetTop, 20, 0, 9999), aiValues: X.aiValues !== false };
+        }
+        function sanitizeLeagueMeta(l) {
+            const o = {};
+            if (!l || typeof l !== 'object') return o;
+            if (typeof l.upper === 'string' && l.upper) o.upper = l.upper.slice(0, 40);
+            ['promo', 'relegate'].forEach(k => { if (l[k] !== undefined && l[k] !== null && Number.isFinite(+l[k])) o[k] = Math.max(0, Math.min(8, Math.round(+l[k]))); });
+            if (l.budgetTop !== undefined && l.budgetTop !== null && Number.isFinite(+l.budgetTop)) o.budgetTop = Math.max(0, Math.min(9999, +l.budgetTop));
+            if (typeof l.playoff === 'boolean') o.playoff = l.playoff;
+            if (typeof l.aiValues === 'boolean') o.aiValues = l.aiValues;
+            if (l.lastSeason && typeof l.lastSeason === 'object') { try { o.lastSeason = JSON.parse(JSON.stringify(l.lastSeason)); } catch (e) {} }
+            return o;
+        }
+        function upperOf(A, X) { const u = X.upper && A.leagues.find(l => l.id === X.upper); return (u && u.id !== X.id) ? u : null; }
+        function lowerOf(A, X) { return A.leagues.find(l => l.id !== X.id && l.upper === X.id) || null; }
+        // Sezon performansına göre piyasa değerini ayarla: yükselt / düşür / eşit bırak
+        function aiAdjustValues(X) {
+            const V = seasonView(X);
+            const st = {};
+            (V.matches || []).forEach(m => {
+                (m.players || []).forEach(p => {
+                    if (!(p.mn > 0)) return;
+                    const e = st[p.n] || (st[p.n] = { apps: 0, rt: 0, ga: 0, motm: 0 });
+                    e.apps++; e.rt += (p.rt || 0); e.ga += (p.g || 0) + (p.a || 0);
+                });
+                if (m.motm && m.motm.n) { const e = st[m.motm.n]; if (e) e.motm++; }
+            });
+            X.values = X.values || {};
+            const res = { up: 0, down: 0, same: 0, list: [] };
+            const seen = new Set();
+            X.teams.forEach(t => squadNames(t).forEach(n => {
+                if (seen.has(n)) return; seen.add(n);
+                const v = mvOf(X, n), e = st[n];
+                if (!e || e.apps < 2 || !(v > 0)) { res.same++; return; }
+                const avg = e.rt / e.apps;
+                let sc = (avg - 6.2) * 0.10 + (e.ga / e.apps) * 0.06 + (e.motm / e.apps) * 0.12;
+                sc = Math.max(-0.25, Math.min(0.4, sc));
+                if (Math.abs(sc) < 0.03) { res.same++; return; }
+                const nv = Math.max(0.1, Math.round(v * (1 + sc) * 10) / 10);
+                if (nv === v) { res.same++; return; }
+                X.values[n] = nv;
+                if (nv > v) res.up++; else res.down++;
+                res.list.push({ n, from: v, to: nv });
+            }));
+            res.list.sort((a, b) => Math.abs(b.to - b.from) - Math.abs(a.to - a.from));
+            return res;
+        }
+        function budgetFor(i, n, top) {
+            const k = n > 1 ? (1 - 0.8 * i / (n - 1)) : 1;
+            return Math.round(top * k * 10) / 10;
+        }
+        function moveTeam(src, dst, t) {
+            src.teams = src.teams.filter(x => x.id !== t.id);
+            dst.teams.push(t);
+            dst.values = dst.values || {};
+            squadNames(t).forEach(n => {
+                const v = src.values && src.values[n];
+                if (Number.isFinite(v) && !Number.isFinite(dst.values[n])) dst.values[n] = v;
+            });
+        }
+        // po: { a, b, ga, gb, pen, winner } ya da null. A (tüm veri) üzerinde değişiklik yapar, özeti döndürür.
+        function finalizeSeason(A, X, po) {
+            const S = lgSet(X);
+            const rows = computeTable(seasonView(X));
+            const n = rows.length;
+            const up = upperOf(A, X), low = lowerOf(A, X);
+            const byId = {}; X.teams.forEach(t => byId[t.id] = t);
+            const nm = id => (byId[id] && byId[id].name) || '?';
+            const sum = {
+                date: Date.now(),
+                table: rows.map(r => ({ name: r.team.name, p: r.p, pts: r.pts })),
+                champion: n ? rows[0].team.name : null,
+                promoted: [], relegated: [], po: null, budgets: [], values: null, upper: up ? up.name : null, lower: low ? low.name : null, notes: []
+            };
+            // Yükselenler
+            let promoIds = [];
+            if (up) {
+                promoIds = rows.slice(0, Math.min(S.promo, n)).map(r => r.team.id);
+                if (po && po.winner && !promoIds.includes(po.winner)) promoIds.push(po.winner);
+                sum.po = po ? { a: nm(po.a), b: nm(po.b), ga: po.ga, gb: po.gb, pen: po.pen || null, winner: nm(po.winner) } : null;
+            }
+            // Düşenler (yükselenler hariç, alttan)
+            let relIds = [];
+            if (low && S.relegate > 0) {
+                const cands = rows.filter(r => !promoIds.includes(r.team.id)).map(r => r.team.id);
+                relIds = cands.slice(Math.max(0, cands.length - S.relegate));
+            }
+            // Bütçe: sıralamaya göre
+            rows.forEach((r, i) => {
+                const amt = budgetFor(i, n, S.budgetTop);
+                if (amt > 0) {
+                    const t = byId[r.team.id];
+                    t.budget = Math.round(((Number.isFinite(t.budget) ? t.budget : 0) + amt) * 10) / 10;
+                    sum.budgets.push({ name: t.name, amt });
+                }
+            });
+            // Piyasa değerleri (takımlar taşınmadan önce, sezon performansına göre)
+            if (S.aiValues) {
+                const r = aiAdjustValues(X);
+                sum.values = { up: r.up, down: r.down, same: r.same, list: r.list.slice(0, 6) };
+            }
+            // Taşıma
+            const mv = (ids, dst, key) => ids.forEach(id => {
+                const t = byId[id];
+                if (!t) return;
+                if (dst.teams.some(x => x.name === t.name)) { sum.notes.push(t.name + ': hedef ligde aynı isimli takım var, taşınmadı'); return; }
+                moveTeam(X, dst, t);
+                sum[key].push(t.name);
+            });
+            if (up) mv(promoIds, up, 'promoted');
+            if (low) mv(relIds, low, 'relegated');
+            X.resetAt = Date.now();
+            X.lastSeason = sum;
+            // Şeref salonu: lig şampiyonu
+            if (sum.champion) {
+                try {
+                    const h = loadHall();
+                    const ct = rows[0].team;
+                    h.champions.push({ cupId: 'lg-' + X.id + '-' + Date.now(), year: curYear(), name: ct.name, color: ct.color || '#888', label: X.name + ' şampiyonu' });
+                    saveHall(h);
+                } catch (e) {}
+            }
+            return sum;
+        }
+        function recordPlayoffMatch(lg) {
+            const note = document.getElementById('ftLeagueNote');
+            const A = loadAll();
+            const X = A.leagues.find(l => l.id === lg.league);
+            const pp = X && X.poPending;
+            if (!pp || pp.a !== lg.home || pp.b !== lg.away) {
+                note.textContent = '⚠️ Play-off zaten işlendi ya da bulunamadı';
+                note.classList.remove('hidden');
+                return;
+            }
+            let ga = matchState.homeScore, gb = matchState.awayScore, pen = null, w;
+            if (ga === gb) {
+                let pa = 0, pb = 0;
+                for (let i = 0; i < 5; i++) { if (Math.random() < 0.75) pa++; if (Math.random() < 0.75) pb++; }
+                while (pa === pb) { if (Math.random() < 0.75) pa++; if (Math.random() < 0.75) pb++; }
+                pen = [pa, pb];
+                w = pa > pb ? pp.a : pp.b;
+            } else w = ga > gb ? pp.a : pp.b;
+            const sum = finalizeSeason(A, X, { a: pp.a, b: pp.b, ga, gb, pen, winner: w });
+            X.poPending = null;
+            const ok = saveAll(A);
+            matchState.recorded = ok;
+            note.textContent = ok ? ('🏁 Play-off: ' + sum.po.winner + ' kazandı' + (pen ? ' (pen. ' + pen[0] + '-' + pen[1] + ')' : '') + ' · Yükselen: ' + (sum.promoted.join(', ') || '-') + ' · Düşen: ' + (sum.relegated.join(', ') || '-')) : '⚠️ Sezon sonu kaydedilemedi';
+            note.classList.remove('hidden');
+        }
+        function finishLeagueFlow() {
+            const A = loadAll(), X = activeLeague(A);
+            const rows = computeTable(seasonView(X));
+            if (rows.length < 2) { toast('En az 2 takım gerekli'); return; }
+            if (!rows.some(r => r.p > 0)) { toast('Bu sezon hiç maç oynanmamış'); return; }
+            const S = lgSet(X), up = upperOf(A, X), low = lowerOf(A, X);
+            const needPO = !!(up && S.playoff && rows.length >= S.promo + 2);
+            let msg = '"' + X.name + '" bitirilsin mi?\n\nŞampiyon: ' + rows[0].team.name;
+            if (up) msg += '\nDoğrudan yükselen (' + up.name + '): ' + (rows.slice(0, S.promo).map(r => r.team.name).join(', ') || '-');
+            if (needPO) msg += '\nPlay-off: ' + rows[S.promo].team.name + ' - ' + rows[S.promo + 1].team.name + ' (kazanan da yükselir, maç hemen oynanır)';
+            if (low && S.relegate > 0) msg += '\nDüşen (' + low.name + '): alttan ' + S.relegate + ' takım';
+            msg += '\n\nBütçeler dağıtılır' + (S.aiValues ? ', oyuncu değerleri YZ ile ayarlanır' : '') + ' ve puan tablosu sıfırlanır.';
+            if (!up) msg += '\n(Üst lig seçilmediği için yükselme yok.)';
+            if (!confirm(msg)) return;
+            if (needPO) {
+                const ha = rows[S.promo].team, hb = rows[S.promo + 1].team;
+                X.poPending = { a: ha.id, b: hb.id };
+                if (!saveAll(A)) return;
+                toast('🏁 Play-off başlıyor: ' + ha.name + ' - ' + hb.name);
+                startLeagueMatch(ha, hb, null, { lid: X.id });
+                return;
+            }
+            const sum = finalizeSeason(A, X, null);
+            if (saveAll(A)) {
+                renderLeague();
+                toast('🏁 Sezon bitti · Yükselen: ' + (sum.promoted.join(', ') || '-') + ' · Düşen: ' + (sum.relegated.join(', ') || '-'));
+            }
+        }
+        function seasonPanelHtml(L) {
+            const A = loadAll(), X = activeLeague(A), S = lgSet(X);
+            const up = upperOf(A, X), low = lowerOf(A, X);
+            const inp = 'w-full mt-1 px-2 py-1.5 rounded-lg bg-slate-950 border border-slate-700 text-xs font-bold text-white';
+            let h = '<div class="rounded-2xl bg-slate-900/90 border border-amber-400/40 p-3 mt-3 space-y-2">' +
+                '<div class="text-[11px] font-extrabold text-amber-300">🏁 Sezon Sonu · Yükselme / Düşme</div>' +
+                '<label class="block text-[10px] text-slate-400">Üst lig (bu lig onun alt ligi)<select data-lgset="upper" class="' + inp + '"><option value="">Yok (en üst lig)</option>' +
+                A.leagues.filter(l => l.id !== X.id && l.upper !== X.id).map(l => '<option value="' + esc(l.id) + '"' + (up && up.id === l.id ? ' selected' : '') + '>' + esc(l.name) + '</option>').join('') + '</select></label>' +
+                '<div class="text-[10px] text-slate-500">Alt lig: <b class="text-slate-300">' + (low ? esc(low.name) : 'yok') + '</b> (başka bir ligde “üst lig” olarak bunu seçersen burası onun üstü olur)</div>' +
+                '<div class="grid grid-cols-3 gap-2">' +
+                '<label class="text-[10px] text-slate-400">Direkt yükselen<input type="number" min="0" max="8" data-lgset="promo" value="' + S.promo + '" class="' + inp + '"></label>' +
+                '<label class="text-[10px] text-slate-400">Düşen sayısı<input type="number" min="0" max="8" data-lgset="relegate" value="' + S.relegate + '" class="' + inp + '"></label>' +
+                '<label class="text-[10px] text-slate-400">1. bütçe (M)<input type="number" min="0" step="1" data-lgset="budgetTop" value="' + S.budgetTop + '" class="' + inp + '"></label></div>' +
+                '<label class="flex items-start gap-2 text-[10px] text-slate-300 cursor-pointer"><input type="checkbox" data-lgset="playoff" class="mt-0.5"' + (S.playoff ? ' checked' : '') + '> <span>Play-off: direkt yükselenlerin hemen arkasındaki 2 takım (örn. 2. ve 3.) oynar, kazanan da yükselir. Beraberlikte penaltı.</span></label>' +
+                '<label class="flex items-start gap-2 text-[10px] text-slate-300 cursor-pointer"><input type="checkbox" data-lgset="aiValues" class="mt-0.5"' + (S.aiValues ? ' checked' : '') + '> <span>Sezon sonunda YZ oyuncu piyasa değerlerini performansa göre yükseltsin / düşürsün / eşit bıraksın</span></label>' +
+                '<div class="text-[10px] text-slate-500">Bütçe: 1. sıra yukarıdaki tutarı alır, son sıra %20’sini alır, arası doğrusal. Bütçe takıma eklenir ve transfer tekliflerinde kullanılır. Yükselen sayısı ile üst ligin düşen sayısını eşit tut ki takım sayıları bozulmasın.</div>' +
+                '<button type="button" data-act="finishleague" class="w-full py-3 rounded-2xl bg-gradient-to-r from-amber-400 to-orange-500 text-slate-950 font-black text-sm cursor-pointer">🏁 LİGİ BİTİR</button>';
+            const ls = X.lastSeason;
+            if (ls) {
+                h += '<div class="rounded-xl bg-slate-800/60 border border-slate-700 p-2 space-y-1 text-[11px] text-slate-300">' +
+                    '<div class="font-bold text-amber-200">Son sezon (' + new Date(ls.date).toLocaleDateString('tr-TR') + ')</div>' +
+                    '<div>🏆 Şampiyon: <b class="text-white">' + esc(ls.champion || '-') + '</b></div>' +
+                    (ls.po ? '<div>🎯 Play-off: ' + esc(ls.po.a) + ' ' + ls.po.ga + '-' + ls.po.gb + ' ' + esc(ls.po.b) + (ls.po.pen ? ' (pen. ' + ls.po.pen[0] + '-' + ls.po.pen[1] + ')' : '') + ' → <b class="text-emerald-300">' + esc(ls.po.winner) + '</b></div>' : '') +
+                    '<div>⬆️ Yükselen' + (ls.upper ? ' (' + esc(ls.upper) + ')' : '') + ': <b class="text-emerald-300">' + (ls.promoted.length ? ls.promoted.map(esc).join(', ') : '-') + '</b></div>' +
+                    '<div>⬇️ Düşen' + (ls.lower ? ' (' + esc(ls.lower) + ')' : '') + ': <b class="text-red-300">' + (ls.relegated.length ? ls.relegated.map(esc).join(', ') : '-') + '</b></div>' +
+                    (ls.budgets && ls.budgets.length ? '<div>💵 Bütçe: ' + ls.budgets.map(b => esc(b.name) + ' +' + b.amt + 'M').join(' · ') + '</div>' : '') +
+                    (ls.values ? '<div>🤖 Değerler: ↑' + ls.values.up + ' ↓' + ls.values.down + ' =' + ls.values.same + (ls.values.list.length ? '<br>' + ls.values.list.map(v => esc(v.n) + ' ' + v.from + '→' + v.to).join(' · ') : '') + '</div>' : '') +
+                    (ls.notes && ls.notes.length ? '<div class="text-amber-300">⚠️ ' + ls.notes.map(esc).join('<br>') + '</div>' : '') + '</div>';
+            }
+            return h + '</div>';
         }
         // OYUNCU HAVUZU: oluşturulan oyuncular kayıtlı kalır, takımlar arası transfer edilir.
         function allPlayers(L) {
@@ -4526,6 +4742,83 @@
             const to = L.teams.find(t => t.id === toId);
             if (to) { to.bench = (to.bench || []).concat(n).slice(0, 12); }
         }
+        // TRANSFER DÖNEMİ: sistem form + piyasa değerine göre teklif hazırlar (serbest oyuncu alımı + değer dengeli takas), sen tek tek onaylarsın.
+        let transferOffers = null;
+        function buildOffers(L) {
+            const f = leagueFormMap(L.id);
+            const ps = n => formScore(f.byName[n]);
+            const mv = n => mvOf(L, n);
+            const rostered = new Set();
+            L.teams.forEach(t => squadNames(t).forEach(n => rostered.add(n)));
+            const fa = allPlayers(L).filter(n => !rostered.has(n)).sort((a, b) => ps(b) - ps(a));
+            const used = new Set(), offers = [];
+            L.teams.slice().sort(() => Math.random() - 0.5).forEach(t => {
+                const sq = squadNames(t).filter(n => !used.has(n));
+                if (!sq.length) return;
+                const w = sq.reduce((a, b) => ps(b) < ps(a) ? b : a);
+                const bud = x => Number.isFinite(x.budget) ? x.budget : Infinity;
+                const cand = fa.find(n => !used.has(n) && ps(n) > ps(w) + 0.3 && (mv(n) - mv(w)) <= bud(t));
+                if (cand) { offers.push({ id: uid(), kind: 'fa', a: t.id, out: w, inn: cand }); used.add(w); used.add(cand); return; }
+                let best = null;
+                L.teams.forEach(o => {
+                    if (o.id === t.id) return;
+                    squadNames(o).forEach(b => {
+                        if (used.has(b)) return;
+                        if (Math.abs(mv(b) - mv(w)) > Math.max(2, 0.25 * Math.max(mv(b), mv(w)))) return;   // değerler dengeli olsun
+                        const gain = ps(b) - ps(w);
+                        if (gain < 0.4 || ps(w) < ps(b) - 1.5) return;                                       // iki taraf da mantıklı kalsın
+                        const dl = mv(b) - mv(w);
+                        if (dl > bud(t) || -dl > bud(o)) return;                                             // bütçe yetmiyorsa teklif yok
+                        if (!best || gain > best.gain) best = { o, b, gain };
+                    });
+                });
+                if (best) { offers.push({ id: uid(), kind: 'swap', a: t.id, b: best.o.id, out: w, inn: best.b }); used.add(w); used.add(best.b); }
+            });
+            return offers;
+        }
+        function swapInSquad(t, out, inn) {
+            ROLES.forEach(r => { if (t.names && t.names[r] === out) t.names[r] = inn; });
+            t.bench = (t.bench || []).map(x => x === out ? inn : x);
+            if (t.captain === out) t.captain = null;
+        }
+        function applyOffer(L, o) {
+            const ta = L.teams.find(t => t.id === o.a), tb = o.kind === 'swap' ? L.teams.find(t => t.id === o.b) : null;
+            if (!ta || !squadNames(ta).includes(o.out)) return false;
+            if (o.kind === 'swap') { if (!tb || !squadNames(tb).includes(o.inn)) return false; }
+            else if (L.teams.some(t => squadNames(t).includes(o.inn))) return false;
+            const dl = mvOf(L, o.inn) - mvOf(L, o.out);
+            if (Number.isFinite(ta.budget) && dl > ta.budget) return false;
+            if (tb && Number.isFinite(tb.budget) && -dl > tb.budget) return false;
+            if (Number.isFinite(ta.budget)) ta.budget = Math.round((ta.budget - dl) * 10) / 10;
+            if (tb && Number.isFinite(tb.budget)) tb.budget = Math.round((tb.budget + dl) * 10) / 10;
+            swapInSquad(ta, o.out, o.inn);
+            if (tb) swapInSquad(tb, o.inn, o.out);
+            L.pool = L.pool || [];
+            [o.out, o.inn].forEach(n => { if (!L.pool.includes(n)) L.pool.push(n); });
+            return true;
+        }
+        function offersHtml(L) {
+            let h = '<div class="rounded-2xl bg-slate-900/90 border border-slate-800 p-3 mt-3 space-y-2"><div class="flex items-center justify-between gap-2">' +
+                '<div class="text-[11px] font-semibold text-slate-400">🔁 Transfer Dönemi</div>' +
+                '<button type="button" data-act="mkoffers" class="px-2.5 py-1 rounded-lg bg-slate-800 border border-slate-700 text-[11px] font-bold text-emerald-300 cursor-pointer">Teklifleri hazırla</button></div>';
+            if (transferOffers && transferOffers.lid === L.id) {
+                const f = leagueFormMap(L.id), ps = n => formScore(f.byName[n]).toFixed(1);
+                const nm = id => { const t = L.teams.find(x => x.id === id); return t ? t.name : '?'; };
+                const pl = n => esc(n) + ' <span class="text-slate-500">(' + mvOf(L, n) + 'M · form ' + ps(n) + ')</span>';
+                if (!transferOffers.list.length) h += '<div class="text-[11px] text-slate-500">Şu an uygun teklif çıkmadı.</div>';
+                transferOffers.list.forEach(o => {
+                    h += '<div class="rounded-xl bg-slate-800/70 border border-slate-700 p-2 space-y-1">' +
+                        (o.kind === 'swap'
+                            ? '<div class="text-[11px] font-bold text-white">' + esc(nm(o.a)) + ' ⇄ ' + esc(nm(o.b)) + '</div><div class="text-[11px] text-slate-300">' + esc(nm(o.a)) + ' verir: ' + pl(o.out) + '<br>' + esc(nm(o.b)) + ' verir: ' + pl(o.inn) + '</div>'
+                            : '<div class="text-[11px] font-bold text-white">' + esc(nm(o.a)) + ' · serbest oyuncu alımı</div><div class="text-[11px] text-slate-300">Gelir: ' + pl(o.inn) + '<br>Ayrılır: ' + pl(o.out) + '</div>') +
+                        '<div class="flex gap-2"><button type="button" data-act="offeryes" data-id="' + esc(o.id) + '" class="flex-1 py-1 rounded-lg bg-emerald-600/80 text-[11px] font-bold text-white cursor-pointer">✅ Onayla</button>' +
+                        '<button type="button" data-act="offerno" data-id="' + esc(o.id) + '" class="flex-1 py-1 rounded-lg bg-slate-700 text-[11px] font-bold text-slate-200 cursor-pointer">✖ Reddet</button></div></div>';
+                });
+            } else {
+                h += '<div class="text-[10px] text-slate-500">Form ve piyasa değerine göre serbest oyuncu alımı ve değer dengeli takas önerir. Her teklifi sen onaylarsın.</div>';
+            }
+            return h + '</div>';
+        }
         function viewTeams(L) {
             let h = '';
             if (!L.teams.length) h += emptyBox('Kayıtlı takım yok.');
@@ -4538,6 +4831,7 @@
                         '<div class="text-[10px] text-slate-400 truncate">' + ROLES.map(r => ROLE_ICONS[r] + ' ' + esc((t.names && t.names[r]) || r)).join(' · ') + '</div>' +
                         ((t.bench && t.bench.length) ? '<div class="text-[10px] text-slate-500 mt-0.5">🪑 Yedek (' + t.bench.length + '): ' + t.bench.map(esc).join(', ') + '</div>' : '') +
                         '<div class="text-[10px] text-amber-300 mt-0.5">💰 Kadro değeri: ' + (Math.round(squadValue(L, t) * 10) / 10) + ' M</div>' +
+                        '<div class="flex items-center gap-1.5 mt-0.5"><span class="text-[10px] text-emerald-300">💵 Bütçe</span><input type="number" min="0" step="0.5" data-budget="' + esc(t.id) + '" value="' + (Number.isFinite(t.budget) ? t.budget : '') + '" placeholder="0" class="w-20 px-2 py-0.5 rounded-lg bg-slate-800 border border-slate-700 text-[11px] font-bold text-white text-right"><span class="text-[10px] text-slate-500">M</span></div>' +
                         '</div></div>' +
                         (() => { const sq = Array.from(new Set(ROLES.map(r => (t.names && t.names[r]) || r).concat(t.bench || []))); return '<div class="flex items-center gap-2 mt-2"><span class="text-[10px] text-slate-400 whitespace-nowrap">🎖️ Kaptan</span><select data-cap="' + esc(t.id) + '" class="flex-1 min-w-0 px-2 py-1 rounded-lg bg-slate-800 border border-slate-700 text-[11px] font-bold text-white"><option value="">Yok</option>' + sq.map(n => '<option' + (n === t.captain ? ' selected' : '') + '>' + esc(n) + '</option>').join('') + '</select></div>'; })() +
                         '<div class="grid grid-cols-2 gap-2 mt-2">' +
@@ -4546,7 +4840,7 @@
                 });
                 h += '</div>';
             }
-            h += playersHtml(L);
+            h += playersHtml(L) + offersHtml(L);
             const A2 = loadAll();
             const others = A2.leagues.filter(l => l.id !== A2.active && l.teams.length);
             if (others.length) {
@@ -4621,7 +4915,7 @@
             });
             return bad;
         }
-        async function startLeagueMatch(h, a, cup) {
+        async function startLeagueMatch(h, a, cup, po) {
             const lidNow = loadAll().active;
             const emNow = expMapFor(lidNow);
             const badH = coachSel.home === 'ai' ? [] : lineupViolations(h, emNow, collectSubs('home'));
@@ -4630,7 +4924,7 @@
             if (bad.length) { toast('⚠️ Mevki kuralı: ' + bad.slice(0, 3).join(', ') + (bad.length > 3 ? ' ...' : '')); return; }
             await Promise.all([loadTeamToSetup('home', h), loadTeamToSetup('away', a)]);
             pendingLeague = {
-                home: h.id, away: a.id, league: loadAll().active, cup: cup || null,
+                home: h.id, away: a.id, league: loadAll().active, cup: cup || null, po: po || null,
                 ai: { home: coachSel.home === 'ai', away: coachSel.away === 'ai' },
                 bench: { home: (h.bench || []).slice(), away: (a.bench || []).slice() },
                 captain: { home: h.captain || null, away: a.captain || null }
@@ -4732,7 +5026,7 @@
         function sanitizeHall(h) {
             const out = { goals: {}, champions: [] };
             if (h && typeof h.goals === 'object') Object.keys(h.goals).forEach(y => { const g = h.goals[y]; if (g && typeof g.clip === 'string') out.goals[String(y).slice(0, 6)] = g; });
-            if (h && Array.isArray(h.champions)) out.champions = h.champions.filter(c => c && c.name).slice(-200).map(c => ({ cupId: String(c.cupId || ''), year: c.year | 0, name: String(c.name).slice(0, 24), color: String(c.color || '#888').slice(0, 20) }));
+            if (h && Array.isArray(h.champions)) out.champions = h.champions.filter(c => c && c.name).slice(-200).map(c => ({ cupId: String(c.cupId || ''), year: c.year | 0, name: String(c.name).slice(0, 24), color: String(c.color || '#888').slice(0, 20), label: c.label ? String(c.label).slice(0, 40) : undefined }));
             return out;
         }
         function loadHall() {
@@ -4799,7 +5093,7 @@
                             '<button type="button" data-act="clearyg" data-y="' + esc(y) + '" class="text-[11px] text-slate-500 cursor-pointer">✖</button></div>';
                     }
                     hall.champions.filter(c => String(c.year) === y).forEach(c => {
-                        h += '<div class="flex items-center gap-2 text-xs"><span class="w-3.5 h-3.5 rounded-full border border-slate-600 shrink-0" style="background:' + esc(c.color) + '"></span><span class="flex-1 min-w-0 font-bold text-white truncate">🏆 ' + esc(c.name) + '</span><span class="text-[10px] text-slate-500">Turnuva şampiyonu</span></div>';
+                        h += '<div class="flex items-center gap-2 text-xs"><span class="w-3.5 h-3.5 rounded-full border border-slate-600 shrink-0" style="background:' + esc(c.color) + '"></span><span class="flex-1 min-w-0 font-bold text-white truncate">🏆 ' + esc(c.name) + '</span><span class="text-[10px] text-slate-500">' + esc(c.label || 'Turnuva şampiyonu') + '</span></div>';
                     });
                     h += '</div>';
                 });
@@ -4957,6 +5251,28 @@
         }));
 
         leagueBody.addEventListener('change', e => {
+            const lgset = e.target.getAttribute && e.target.getAttribute('data-lgset');
+            if (lgset) {
+                const A = loadAll(), X = activeLeague(A), t = e.target;
+                if (lgset === 'upper') X.upper = (t.value && t.value !== X.id) ? t.value : null;
+                else if (lgset === 'playoff' || lgset === 'aiValues') X[lgset] = t.checked;
+                else {
+                    const v = parseFloat(t.value);
+                    if (Number.isFinite(v)) X[lgset] = Math.max(0, Math.min(lgset === 'budgetTop' ? 9999 : 8, v));
+                }
+                saveAll(A); renderLeague();
+                return;
+            }
+            const bdg = e.target.getAttribute && e.target.getAttribute('data-budget');
+            if (bdg) {
+                const A = loadAll(), X = activeLeague(A), tm = X.teams.find(x => x.id === bdg);
+                if (tm) {
+                    const v = parseFloat(e.target.value);
+                    if (Number.isFinite(v) && v >= 0) tm.budget = Math.round(Math.min(99999, v) * 10) / 10; else delete tm.budget;
+                    saveAll(A); renderLeague();
+                }
+                return;
+            }
             if (e.target.hasAttribute && e.target.hasAttribute('data-mv')) {
                 const A = loadAll();
                 const l = activeLeague(A);
@@ -5013,7 +5329,13 @@
             const act = el.getAttribute('data-act');
             const id = el.getAttribute('data-id');
             const L = loadLeague();
-            if (act === 'play') {
+            if (act === 'finishleague') {
+                finishLeagueFlow();
+            } else if (act === 'aivalues') {
+                const A = loadAll(), X = activeLeague(A);
+                const r = aiAdjustValues(X);
+                if (saveAll(A)) { renderLeague(); toast('🤖 Değerler: ↑' + r.up + ' ↓' + r.down + ' =' + r.same); }
+            } else if (act === 'play') {
                 const h = L.teams.find(t => t.id === leagueSel.home);
                 const a = L.teams.find(t => t.id === leagueSel.away);
                 if (!h || !a || h.id === a.id) { toast('İki farklı takım seç'); return; }
@@ -5069,6 +5391,20 @@
                 cur.reels = cur.reels.slice(-150);
                 if (saveAll(A)) { renderLeague(); toast('✅ ' + t.name + ' bu lige alındı' + (nr ? ' · ' + nr + ' gol tekrarı' : '') + (nv ? ' · ' + nv + ' değer' : '')); }
                 else toast('⚠️ Kaydedilemedi (depolama dolu olabilir)');
+            } else if (act === 'mkoffers') {
+                transferOffers = { lid: L.id, list: buildOffers(L) };
+                renderLeague();
+            } else if (act === 'offeryes') {
+                const o = transferOffers && transferOffers.list.find(x => x.id === id);
+                if (o) {
+                    const ok = applyOffer(L, o);
+                    transferOffers.list = transferOffers.list.filter(x => x.id !== id);
+                    if (ok) saveLeague(L);
+                    renderLeague(); toast(ok ? '✅ Transfer tamamlandı' : '⚠️ Teklif artık geçerli değil');
+                }
+            } else if (act === 'offerno') {
+                if (transferOffers) transferOffers.list = transferOffers.list.filter(x => x.id !== id);
+                renderLeague();
             } else if (act === 'player') {
                 showPlayer(id);
             } else if (act === 'watchyg') {
@@ -5170,7 +5506,7 @@
                 if (raw && Array.isArray(raw.leagues)) {
                     const leagues = raw.leagues.map(l => {
                         const d = sanitizeLeague(l);
-                        return d ? { id: String((l && l.id) || uid()), name: String((l && l.name) || 'Lig').slice(0, 24), teams: d.teams, matches: d.matches, pool: d.pool, reels: d.reels, resetAt: d.resetAt, zones: Array.isArray(l.zones) ? sanitizeZones(l.zones) : undefined, values: sanitizeValues(l.values) } : null;
+                        return d ? { id: String((l && l.id) || uid()), name: String((l && l.name) || 'Lig').slice(0, 24), teams: d.teams, matches: d.matches, pool: d.pool, reels: d.reels, resetAt: d.resetAt, zones: Array.isArray(l.zones) ? sanitizeZones(l.zones) : undefined, values: sanitizeValues(l.values), ...sanitizeLeagueMeta(l) } : null;
                     }).filter(Boolean);
                     if (!leagues.length) { toast('⚠️ Geçersiz yedek dosyası'); return; }
                     if (confirm(leagues.length + ' lig yüklenecek. Mevcut TÜM ligler değiştirilsin mi?')) {
