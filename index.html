@@ -3774,7 +3774,12 @@
                 }))
             }));
             const pool = (Array.isArray(o.pool) ? o.pool : []).map(x => String(x).trim().slice(0, 10)).filter(Boolean).slice(0, 300);
-            return { teams, matches, pool };
+            const reels = (Array.isArray(o.reels) ? o.reels : []).filter(r => r && typeof r.clip === 'string' && r.name).slice(-150).map(r => ({
+                id: String(r.id || Math.random().toString(36).slice(2)), name: String(r.name).slice(0, 10), team: String(r.team || '').slice(0, 24),
+                side: r.side === 'away' ? 'away' : 'home', home: String(r.home || '').slice(0, 24), away: String(r.away || '').slice(0, 24),
+                hs: r.hs | 0, as: r.as | 0, min: r.min | 0, clip: r.clip, from: String(r.from || '').slice(0, 24)
+            }));
+            return { teams, matches, pool, reels };
         }
         // PURE-END
 
@@ -4426,18 +4431,18 @@
         }
 
         function viewHistory(L) {
-            if (!L.matches.length) return emptyBox('Henüz oynanmış lig maçı yok.');
+            if (!L.matches.length) return reelsHtml(L) + emptyBox('Henüz oynanmış lig maçı yok.');
             const byId = {};
             L.teams.forEach(t => byId[t.id] = t);
             const lines = (m, side) => m.scorers.map((s, gi) => ({ s, gi })).filter(x => x.s.team === side).map(({ s, gi }) =>
-                (s.clip ? '<button type="button" data-act="watch" data-id="' + esc(m.id) + '" data-g="' + gi + '" class="mr-1 px-1.5 rounded bg-slate-800 border border-slate-700 text-emerald-300 font-bold cursor-pointer">▶</button>' : '') +
+                (s.clip ? '<button type="button" data-act="watch" data-id="' + esc(m.id) + '" data-g="' + gi + '" class="mr-1 px-1.5 rounded bg-slate-800 border border-slate-700 text-emerald-300 font-bold cursor-pointer">▶</button><button type="button" data-act="yeargoal" data-id="' + esc(m.id) + '" data-g="' + gi + '" title="Yılın golü yap" class="mr-1 cursor-pointer">🏅</button>' : '') +
                 esc(s.name) + (s.own ? ' (k.k.)' : '') + ' ' + s.min + "'").join('<br>');
             let clipCount = 0, clipChars = 0;
             L.matches.forEach(m => m.scorers.forEach(s => { if (s.clip) { clipCount++; clipChars += s.clip.length; } }));
-            let h = clipCount
+            let h = reelsHtml(L) + (clipCount
                 ? '<div class="flex items-center justify-between gap-2 mb-2 px-1 text-[10px] text-slate-500"><span>🎬 ' + clipCount + ' gol tekrarı · ≈' + Math.max(1, Math.round(clipChars / 1024)) + ' KB</span>' +
                   '<button type="button" data-act="clearclips" class="font-bold text-slate-400 hover:text-red-400 cursor-pointer">Tekrarları sil</button></div>'
-                : '';
+                : '');
             h += '<div class="space-y-2">';
             L.matches.slice().reverse().forEach(m => {
                 const a = byId[m.home], b = byId[m.away];
@@ -4533,7 +4538,7 @@
             const others = A2.leagues.filter(l => l.id !== A2.active && l.teams.length);
             if (others.length) {
                 h += '<div class="rounded-2xl bg-slate-900/90 border border-slate-800 p-3 mt-3 space-y-2">' +
-                    '<div class="text-[11px] font-semibold text-slate-400">📥 Başka ligden takım al (kopyalanır, maç geçmişi gelmez)</div>';
+                    '<div class="text-[11px] font-semibold text-slate-400">📥 Başka ligden takım al (kopyalanır; gol tekrarları ve piyasa değerleri de gelir, maç geçmişi gelmez)</div>';
                 others.forEach(l => {
                     h += '<div class="text-[10px] font-bold text-slate-500 mt-1">🏆 ' + esc(l.name) + '</div>';
                     l.teams.forEach(t => {
@@ -4639,6 +4644,69 @@
             if (!frames) { toast('⚠️ Bu golün tekrarı bulunamadı'); return; }
             const th = L.teams.find(t => t.id === m.home), ta = L.teams.find(t => t.id === m.away);
             if (!th || !ta) return;
+            let hs = 0, as = 0;
+            m.scorers.forEach((s, i) => { if (i <= gi) { if (s.team === 'home') hs++; else as++; } });
+            return playGoalClip(th, ta, sc, hs, as, frames);
+        }
+        // GOL ARŞİVİ + YILIN GOLÜ
+        const YG_KEY = 'haxballGoalOfYear';
+        const YG_SEED = {"name": "Gexin", "team": "Gece mavisi", "side": "home", "home": "Gece mavisi", "away": "Açık pembe", "hs": 2, "as": 0, "min": 56, "clip": "8.49.WwDwAAwBfARKEHwBZgBCARABYACKAHYBUQHsAsgIggKnAPsAZgDYAAwBfARMEHYBaAA8AQ4BYQCLAHEBUgH7AswIiQKbAP4AcADBAAwBfAROEHABaQA2AQoBYgCOAG0BUwEKA88IkwKOAP8AegCrAAwBfARSEGoBaQAxAQQBZACSAGkBUgEZA9EInwKFAPgAhACWAAwBfARXEGYBaAArAfsAZgCZAGYBUQEoA9AIrAJ+AO8AjQCCAAwBfAReAGABaAAjAe8AaACiAGQBUAE3A80IuQJ5AOUAlgBuAAwBfARmAFgBaAAaAeIAaQCuAGMBTgFGA8kIwwJ2ANwAkQBwAAwBfARwAE8BaQARAdUQaQC7AGMBTAFVA8QIywJ1ANMAegCPAAwBfAR5AEQBaQAIAcgQaQDIAGEBSQFhA8AI0QJzAMkAZgB/AAwBfASDADsBZwACAboQawDWAFwBRwFsA70I1QJwAMIAUwBiAAwBfASOADUBZgD4AK0QawDiAFUBRQFzA7wI2AJvALkAQwBIAAwBfASZADEBZADuAKIQawDtAEwBQgF4A70I2AJtAK8AVgBRAAwBfASlAC8BYgjjAJoAawD3AEIBQAF6A78I1wJsAKQAaQBaAAwBfASyADABYgjWAJoAbAD/ADYBPgF5A8II0wJqAJgAXgBLAAwBfAS/ADQBYgjKAJoAaAAGASoBOwF2A8cIzQJlGIwAVAA+AAwBfATMADoBYQi+AJwAZgAMARwBOQFvA84IxQJhGH8AVgBDAAwBfATYAEIBYQiyAJ4AZgAPAQ8BNwFnA9QIvQJgGHYAVwA7AAwBfATjAEsBYQisAKIAZgARAQABNAFbA9gAuAJjGG4AXQBCAAwBfATsAFYBXgipAKkAZwARAfIAMQFNA9kAtQJsGHMAYwBIAAwBfAT0AGIBVAikALcAZgAPAeQALwE9A9kAtQJ6CHYAjQCcAAwBfAT7AG4BOQiaANgAVAANAdYALQEtA9kAtwKCCFwAmwC0AAwBfAQAAXsBRgibANcAVgAIAckAKwEeA9sAuQKCCF8AqADMAAwBfAQFAYgBSgieANYAWwABCb0AKgEOA98AvAKDCGMAtQDiAAwBfAQJAZUBUQiiANUAYgD4CLQAKQH+AuYAvwKECGsAwQD3AAwBfAQLAZ8BWgimANQAbQDuCKwAKgHuAvAAwgKFCHUAzQALAQwBfAQNAaYBYgivANAAcgDnCK4ALwHhAvcAwgKLCH0A2AAfAQwBfAQOAawBbAi6AM4AdwDfCLQAOQHVAvwAwAKQCIYA4wAxAQwBfAQPAa4BeAjHANEAewDXCLsAQgHGAgIBwAKUCI4A7QBDAQwBfAQOCa4BigjUANQAgQDOCMEASQG3AgoBwAKXCJUA9wBUAQwBfAQOCawBlgjgANkAhgDQCMUATgGmAhQBwQKaCKAAAAFkAQ0BfAQOCacBoQjtAN8AiQDVCMgAUQGWAiABwQKbCK0AGRFmARABfAQPGaABrgj5AOgAjADZCMoAUwGHAiwBwAKbCLwAPBFaARYBfAQSGZcBvwgFAfIAjwDcCMwAVgF6AjcBvgKcCMwAXBFKAR8BfAQXGYwB1AgOAfwAkQDcCM8AWAFvAj8BvAKeCNwAeBE4ASkBfAQfGYEB6wgVAQYBkgDcCNYAWwFoAkQBugKgCOwAkBEiATMBfAQnGXUB/AAZAREBkgDeCOAAXgFjAkcBuAKkCPwApBELAT0BfAQvGW0BDQEaAR4BkwDiCOwAYAFgAkcBtgKqCAsBtRHyAEcBfAQ4GWQBHwEaASsBlADpCPkAYwFhAkQBswKxCBkBwRHZAFEBewRDCVoBLwEYATgBlgDyCAgBZwFkAj8BsAK6CCYByhG/AFsBewRQCU8BPQESAUUBlwD+CBcBagFqAjgBrQLDCDIBzxGmAGUBewRgCUUBSgEJAVIBmAAKCScBbgFyAi4BqgLMADgB0BGOAG8BewRxCTkBVgH/AF8BmAAVCTYBcgF+AiEBpwLWADwBzhF2AHkBfASDCSwBYQH1AGwBlgAhCUYBdgGLAhQBpQLhAD8ByhFgAIMBfASUCR0BbAHrAHkBkwAsCVQBegGaAgYBowLtAEABwxFMAI0BfASkCQ4BdwHhAIYBjwA3AWABfQGpAvgAoQL5AEABuhE5AJcBfAS1Cf4AggHWAJEBiQBAAWoBgAG3AuoAoAIFAT4BrxEpAKABfATFCe8AjAHKAJwBggBLAXMBgwHGAtwAoAIRATwBohEbAKUBfATWCeAAlAG+AKUBeABWAXsBhQHVAs8AogIdATgBlREPAKgBfATnCdEAmwGxAK0BbQBhAYIBhwHkAsQApAIoATQB", "league": "2.Renk Ligi"};
+        function loadYG() {
+            try {
+                const r = localStorage.getItem(YG_KEY);
+                if (r) return JSON.parse(r);
+                if (!localStorage.getItem(YG_KEY + 'Seeded')) { localStorage.setItem(YG_KEY + 'Seeded', '1'); localStorage.setItem(YG_KEY, JSON.stringify(YG_SEED)); return YG_SEED; }
+            } catch (e) {}
+            return null;
+        }
+        function saveYG(g) {
+            try {
+                localStorage.setItem(YG_KEY + 'Seeded', '1');
+                if (g) localStorage.setItem(YG_KEY, JSON.stringify(g)); else localStorage.removeItem(YG_KEY);
+            } catch (e) {}
+        }
+        function findTeamByName(A, name) {
+            const cur = A.leagues.find(l => l.id === A.active);
+            const order = [cur].concat(A.leagues.filter(l => l !== cur));
+            for (const l of order) { const t = l && l.teams.find(x => x.name === name); if (t) return t; }
+            const names = {}; ROLES.forEach(r => names[r] = r);
+            return { id: 'x', name, color: '#64748b', names, bench: [], logo: null };
+        }
+        async function watchReel(g) {
+            const frames = g && g.clip ? decodeClip(g.clip) : null;
+            if (!frames) { toast('⚠️ Bu golün tekrarı bulunamadı'); return; }
+            const A = loadAll();
+            return playGoalClip(findTeamByName(A, g.home), findTeamByName(A, g.away), { name: g.name, team: g.side === 'away' ? 'away' : 'home', min: g.min, own: false }, g.hs | 0, g.as | 0, frames);
+        }
+        function reelFromMatch(L, m, gi) {
+            const sc = m.scorers[gi];
+            const th = L.teams.find(t => t.id === m.home), ta = L.teams.find(t => t.id === m.away);
+            let hs = 0, as = 0;
+            m.scorers.forEach((x, i) => { if (i <= gi) { if (x.team === 'home') hs++; else as++; } });
+            const st = sc.team === 'home' ? th : ta;
+            return { name: sc.name, team: st ? st.name : '?', side: sc.team, home: th ? th.name : '?', away: ta ? ta.name : '?', hs, as, min: sc.min, clip: sc.clip, league: L.name, date: m.date };
+        }
+        function reelsHtml(L) {
+            const yg = loadYG();
+            let h = '';
+            if (yg) {
+                h += '<div class="rounded-2xl bg-slate-900/90 border border-amber-400/40 p-3 mb-2"><div class="text-[11px] font-extrabold text-amber-300">🏅 Yılın Golü</div>' +
+                    '<div class="flex items-center gap-2 mt-1.5"><button type="button" data-act="watchyg" class="px-2 py-1 rounded-lg bg-slate-800 border border-slate-700 text-emerald-300 text-xs font-bold cursor-pointer">▶</button>' +
+                    '<div class="flex-1 min-w-0"><div class="text-xs font-bold text-white truncate">' + esc(yg.name) + ' · ' + esc(yg.team) + '</div>' +
+                    '<div class="text-[10px] text-slate-400 truncate">' + esc(yg.home) + ' ' + (yg.hs | 0) + '-' + (yg.as | 0) + ' ' + esc(yg.away) + " · " + (yg.min | 0) + "' · " + esc(yg.league || '') + '</div></div>' +
+                    '<button type="button" data-act="clearyg" class="text-[11px] text-slate-500 cursor-pointer">✖</button></div></div>';
+            }
+            const rs = (L.reels || []);
+            if (rs.length) {
+                h += '<details class="rounded-2xl bg-slate-900/90 border border-slate-800 p-3 mb-2"><summary class="text-[11px] font-semibold text-slate-400 cursor-pointer">🎞️ Gol Arşivi (' + rs.length + ') · başka ligden gelen tekrarlar</summary><div class="mt-2 space-y-1.5">' +
+                    rs.slice().reverse().map(r => '<div class="flex items-center gap-2 text-[11px]"><button type="button" data-act="watchreel" data-id="' + esc(r.id) + '" class="px-1.5 rounded bg-slate-800 border border-slate-700 text-emerald-300 font-bold cursor-pointer">▶</button>' +
+                        '<span class="flex-1 min-w-0 truncate text-slate-200"><b>' + esc(r.name) + '</b> · ' + esc(r.home) + ' ' + (r.hs | 0) + '-' + (r.as | 0) + ' ' + esc(r.away) + " · " + (r.min | 0) + "'</span>" +
+                        '<button type="button" data-act="setyg" data-id="' + esc(r.id) + '" title="Yılın golü yap" class="cursor-pointer">🏅</button></div>').join('') + '</div></details>';
+            }
+            return h;
+        }
+        // Tekrarı oynatır (maç geçmişinden de, gol arşivinden de kullanılır)
+        async function playGoalClip(th, ta, sc, hs, as, frames) {
             const [imgH, imgA] = await Promise.all([loadImg(th.logo), loadImg(ta.logo)]);
 
             if (!viewerSnap) {
@@ -4660,8 +4728,6 @@
             });
             homeColorInput.value = th.color;
             awayColorInput.value = ta.color;
-            let hs = 0, as = 0;
-            m.scorers.forEach((s, i) => { if (i <= gi) { if (s.team === 'home') hs++; else as++; } });
             matchState.homeScore = hs; matchState.awayScore = as;
             matchState.elapsedReal = Math.min(1, sc.min / 90) * TOTAL_REAL_SECONDS;
             matchState.half = sc.min > 45 ? 2 : 1;
@@ -4869,8 +4935,43 @@
                 if (!t) return;
                 if (cur.teams.some(x => x.name === t.name)) { toast('Bu ligde aynı isimli takım var'); return; }
                 cur.teams.push(JSON.parse(JSON.stringify(Object.assign({}, t, { id: uid() }))));
-                if (saveAll(A)) { renderLeague(); toast('✅ ' + t.name + ' bu lige alındı'); }
+                // Piyasa değerleri: takımın oyuncularının değerleri gelir (bu ligde zaten girilmiş olanlara dokunulmaz)
+                let nv = 0;
+                squadNames(t).forEach(n => {
+                    const v = src.values && src.values[n];
+                    if (Number.isFinite(v) && !(cur.values && Number.isFinite(cur.values[n]))) { (cur.values = cur.values || {})[n] = v; nv++; }
+                });
+                // Gol tekrarları: takımın attığı goller arşive kopyalanır
+                const add = [];
+                // Takımın attığı goller + kadrosundaki oyuncuların (eski takımı ne olursa olsun) bu ligde attığı goller
+                const squad = new Set(squadNames(t));
+                (src.matches || []).forEach(m => {
+                    const side = m.home === t.id ? 'home' : (m.away === t.id ? 'away' : null);
+                    (m.scorers || []).forEach((sc, gi) => {
+                        if (sc.own || !sc.clip) return;
+                        if ((side && sc.team === side) || squad.has(sc.name)) { const r = reelFromMatch(src, m, gi); r.from = src.name; add.push(r); }
+                    });
+                });
+                (src.reels || []).forEach(r => { if (r.team === t.name || squad.has(r.name)) add.push(r); });
+                cur.reels = cur.reels || [];
+                const have = new Set(cur.reels.map(r => r.clip));
+                let nr = 0;
+                add.filter(r => !have.has(r.clip)).slice(-60).forEach(r => { cur.reels.push(Object.assign({}, r, { id: uid() })); nr++; });
+                cur.reels = cur.reels.slice(-150);
+                if (saveAll(A)) { renderLeague(); toast('✅ ' + t.name + ' bu lige alındı' + (nr ? ' · ' + nr + ' gol tekrarı' : '') + (nv ? ' · ' + nv + ' değer' : '')); }
                 else toast('⚠️ Kaydedilemedi (depolama dolu olabilir)');
+            } else if (act === 'watchyg') {
+                watchReel(loadYG());
+            } else if (act === 'watchreel') {
+                watchReel((L.reels || []).find(r => r.id === id));
+            } else if (act === 'setyg') {
+                const r = (L.reels || []).find(x => x.id === id);
+                if (r) { const g = Object.assign({}, r); delete g.id; g.league = r.from || L.name; saveYG(g); renderLeague(); toast('🏅 Yılın Golü: ' + r.name); }
+            } else if (act === 'yeargoal') {
+                const m = L.matches.find(x => x.id === id), gi = parseInt(el.getAttribute('data-g'), 10);
+                if (m && m.scorers[gi] && m.scorers[gi].clip) { saveYG(reelFromMatch(L, m, gi)); renderLeague(); toast('🏅 Yılın Golü: ' + m.scorers[gi].name); }
+            } else if (act === 'clearyg') {
+                saveYG(null); renderLeague();
             } else if (act === 'watch') {
                 watchGoal(id, parseInt(el.getAttribute('data-g'), 10));
             } else if (act === 'clearclips') {
@@ -4909,7 +5010,7 @@
                 window.scrollTo(0, 0);
                 toast('✏️ ' + t.name + ' Ev Sahibi kartına yüklendi. Aynı isimle kaydedersen güncellenir.');
             } else if (act === 'export') {
-                const blob = new Blob([JSON.stringify(Object.assign(loadAll(), { tournament: loadCup() }))], { type: 'application/json' });
+                const blob = new Blob([JSON.stringify(Object.assign(loadAll(), { tournament: loadCup(), goalOfYear: loadYG() }))], { type: 'application/json' });
                 const url = URL.createObjectURL(blob);
                 const a = document.createElement('a');
                 a.href = url;
@@ -4958,13 +5059,14 @@
                 if (raw && Array.isArray(raw.leagues)) {
                     const leagues = raw.leagues.map(l => {
                         const d = sanitizeLeague(l);
-                        return d ? { id: String((l && l.id) || uid()), name: String((l && l.name) || 'Lig').slice(0, 24), teams: d.teams, matches: d.matches, pool: d.pool, zones: Array.isArray(l.zones) ? sanitizeZones(l.zones) : undefined, values: sanitizeValues(l.values) } : null;
+                        return d ? { id: String((l && l.id) || uid()), name: String((l && l.name) || 'Lig').slice(0, 24), teams: d.teams, matches: d.matches, pool: d.pool, reels: d.reels, zones: Array.isArray(l.zones) ? sanitizeZones(l.zones) : undefined, values: sanitizeValues(l.values) } : null;
                     }).filter(Boolean);
                     if (!leagues.length) { toast('⚠️ Geçersiz yedek dosyası'); return; }
                     if (confirm(leagues.length + ' lig yüklenecek. Mevcut TÜM ligler değiştirilsin mi?')) {
                         const act = leagues.some(l => l.id === raw.active) ? raw.active : leagues[0].id;
                         if (saveAll({ active: act, leagues })) {
                             if (raw.tournament && Array.isArray(raw.tournament.rounds)) saveCup(raw.tournament);
+                            if (raw.goalOfYear && typeof raw.goalOfYear.clip === 'string') saveYG(raw.goalOfYear);
                             leagueSel.home = leagueSel.away = null; renderLeague(); toast('✅ Yedek yüklendi');
                         }
                     }
