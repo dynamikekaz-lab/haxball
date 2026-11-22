@@ -4241,6 +4241,7 @@
             return null;
         }
         function saveCup(c) {
+            try { recordChampion(JSON.parse(localStorage.getItem(CUP_KEY) || 'null')); } catch (e) {}
             try {
                 if (c) localStorage.setItem(CUP_KEY, JSON.stringify(c)); else localStorage.removeItem(CUP_KEY);
                 return true;
@@ -4566,6 +4567,7 @@
 
         function renderLeague() {
             syncZones();
+            syncHall();
             const A = loadAll();
             (() => {
                 let dl = document.getElementById('poolList');
@@ -4651,20 +4653,43 @@
         // GOL ARŞİVİ + YILIN GOLÜ
         const YG_KEY = 'haxballGoalOfYear';
         const YG_SEED = {"name": "Gexin", "team": "Gece mavisi", "side": "home", "home": "Gece mavisi", "away": "Açık pembe", "hs": 2, "as": 0, "min": 56, "clip": "8.49.WwDwAAwBfARKEHwBZgBCARABYACKAHYBUQHsAsgIggKnAPsAZgDYAAwBfARMEHYBaAA8AQ4BYQCLAHEBUgH7AswIiQKbAP4AcADBAAwBfAROEHABaQA2AQoBYgCOAG0BUwEKA88IkwKOAP8AegCrAAwBfARSEGoBaQAxAQQBZACSAGkBUgEZA9EInwKFAPgAhACWAAwBfARXEGYBaAArAfsAZgCZAGYBUQEoA9AIrAJ+AO8AjQCCAAwBfAReAGABaAAjAe8AaACiAGQBUAE3A80IuQJ5AOUAlgBuAAwBfARmAFgBaAAaAeIAaQCuAGMBTgFGA8kIwwJ2ANwAkQBwAAwBfARwAE8BaQARAdUQaQC7AGMBTAFVA8QIywJ1ANMAegCPAAwBfAR5AEQBaQAIAcgQaQDIAGEBSQFhA8AI0QJzAMkAZgB/AAwBfASDADsBZwACAboQawDWAFwBRwFsA70I1QJwAMIAUwBiAAwBfASOADUBZgD4AK0QawDiAFUBRQFzA7wI2AJvALkAQwBIAAwBfASZADEBZADuAKIQawDtAEwBQgF4A70I2AJtAK8AVgBRAAwBfASlAC8BYgjjAJoAawD3AEIBQAF6A78I1wJsAKQAaQBaAAwBfASyADABYgjWAJoAbAD/ADYBPgF5A8II0wJqAJgAXgBLAAwBfAS/ADQBYgjKAJoAaAAGASoBOwF2A8cIzQJlGIwAVAA+AAwBfATMADoBYQi+AJwAZgAMARwBOQFvA84IxQJhGH8AVgBDAAwBfATYAEIBYQiyAJ4AZgAPAQ8BNwFnA9QIvQJgGHYAVwA7AAwBfATjAEsBYQisAKIAZgARAQABNAFbA9gAuAJjGG4AXQBCAAwBfATsAFYBXgipAKkAZwARAfIAMQFNA9kAtQJsGHMAYwBIAAwBfAT0AGIBVAikALcAZgAPAeQALwE9A9kAtQJ6CHYAjQCcAAwBfAT7AG4BOQiaANgAVAANAdYALQEtA9kAtwKCCFwAmwC0AAwBfAQAAXsBRgibANcAVgAIAckAKwEeA9sAuQKCCF8AqADMAAwBfAQFAYgBSgieANYAWwABCb0AKgEOA98AvAKDCGMAtQDiAAwBfAQJAZUBUQiiANUAYgD4CLQAKQH+AuYAvwKECGsAwQD3AAwBfAQLAZ8BWgimANQAbQDuCKwAKgHuAvAAwgKFCHUAzQALAQwBfAQNAaYBYgivANAAcgDnCK4ALwHhAvcAwgKLCH0A2AAfAQwBfAQOAawBbAi6AM4AdwDfCLQAOQHVAvwAwAKQCIYA4wAxAQwBfAQPAa4BeAjHANEAewDXCLsAQgHGAgIBwAKUCI4A7QBDAQwBfAQOCa4BigjUANQAgQDOCMEASQG3AgoBwAKXCJUA9wBUAQwBfAQOCawBlgjgANkAhgDQCMUATgGmAhQBwQKaCKAAAAFkAQ0BfAQOCacBoQjtAN8AiQDVCMgAUQGWAiABwQKbCK0AGRFmARABfAQPGaABrgj5AOgAjADZCMoAUwGHAiwBwAKbCLwAPBFaARYBfAQSGZcBvwgFAfIAjwDcCMwAVgF6AjcBvgKcCMwAXBFKAR8BfAQXGYwB1AgOAfwAkQDcCM8AWAFvAj8BvAKeCNwAeBE4ASkBfAQfGYEB6wgVAQYBkgDcCNYAWwFoAkQBugKgCOwAkBEiATMBfAQnGXUB/AAZAREBkgDeCOAAXgFjAkcBuAKkCPwApBELAT0BfAQvGW0BDQEaAR4BkwDiCOwAYAFgAkcBtgKqCAsBtRHyAEcBfAQ4GWQBHwEaASsBlADpCPkAYwFhAkQBswKxCBkBwRHZAFEBewRDCVoBLwEYATgBlgDyCAgBZwFkAj8BsAK6CCYByhG/AFsBewRQCU8BPQESAUUBlwD+CBcBagFqAjgBrQLDCDIBzxGmAGUBewRgCUUBSgEJAVIBmAAKCScBbgFyAi4BqgLMADgB0BGOAG8BewRxCTkBVgH/AF8BmAAVCTYBcgF+AiEBpwLWADwBzhF2AHkBfASDCSwBYQH1AGwBlgAhCUYBdgGLAhQBpQLhAD8ByhFgAIMBfASUCR0BbAHrAHkBkwAsCVQBegGaAgYBowLtAEABwxFMAI0BfASkCQ4BdwHhAIYBjwA3AWABfQGpAvgAoQL5AEABuhE5AJcBfAS1Cf4AggHWAJEBiQBAAWoBgAG3AuoAoAIFAT4BrxEpAKABfATFCe8AjAHKAJwBggBLAXMBgwHGAtwAoAIRATwBohEbAKUBfATWCeAAlAG+AKUBeABWAXsBhQHVAs8AogIdATgBlREPAKgBfATnCdEAmwGxAK0BbQBhAYIBhwHkAsQApAIoATQB", "league": "2.Renk Ligi"};
-        function loadYG() {
-            try {
-                const r = localStorage.getItem(YG_KEY);
-                if (r) return JSON.parse(r);
-                if (!localStorage.getItem(YG_KEY + 'Seeded')) { localStorage.setItem(YG_KEY + 'Seeded', '1'); localStorage.setItem(YG_KEY, JSON.stringify(YG_SEED)); return YG_SEED; }
-            } catch (e) {}
-            return null;
+        // ŞEREF SALONU: her yıl için Yılın Golü (kendi klibiyle, maç tekrarı silinse de kalır) + turnuva şampiyonları
+        const HALL_KEY = 'haxballHall';
+        const curYear = () => new Date().getFullYear();
+        function saveHall(h) { try { localStorage.setItem(HALL_KEY, JSON.stringify(h)); } catch (e) {} }
+        function sanitizeHall(h) {
+            const out = { goals: {}, champions: [] };
+            if (h && typeof h.goals === 'object') Object.keys(h.goals).forEach(y => { const g = h.goals[y]; if (g && typeof g.clip === 'string') out.goals[String(y).slice(0, 6)] = g; });
+            if (h && Array.isArray(h.champions)) out.champions = h.champions.filter(c => c && c.name).slice(-200).map(c => ({ cupId: String(c.cupId || ''), year: c.year | 0, name: String(c.name).slice(0, 24), color: String(c.color || '#888').slice(0, 20) }));
+            return out;
         }
-        function saveYG(g) {
-            try {
-                localStorage.setItem(YG_KEY + 'Seeded', '1');
-                if (g) localStorage.setItem(YG_KEY, JSON.stringify(g)); else localStorage.removeItem(YG_KEY);
-            } catch (e) {}
+        function loadHall() {
+            let h = null;
+            try { h = JSON.parse(localStorage.getItem(HALL_KEY) || 'null'); } catch (e) {}
+            if (!h || typeof h !== 'object') {
+                h = { goals: {}, champions: [] };
+                let old = null;
+                try { old = JSON.parse(localStorage.getItem(YG_KEY) || 'null'); } catch (e) {}
+                if (old && typeof old.clip === 'string') h.goals[String(old.year || 2026)] = old; else h.goals['2026'] = YG_SEED;
+                saveHall(h);
+            }
+            h.goals = h.goals || {}; h.champions = h.champions || [];
+            return h;
         }
+        function setYearGoal(g) {
+            const h = loadHall(), y = String(curYear());
+            if (h.goals[y] && !confirm(y + ' yılının golü zaten seçili (' + h.goals[y].name + '). Değiştirilsin mi?')) return false;
+            h.goals[y] = Object.assign({}, g, { year: curYear() }); saveHall(h); return true;
+        }
+        function recordChampion(c) {
+            if (!c || !c.id || !c.champion || !c.teams || !c.teams[c.champion]) return;
+            const h = loadHall();
+            if (h.champions.some(x => x.cupId === c.id)) return;
+            const t = c.teams[c.champion];
+            h.champions.push({ cupId: c.id, year: curYear(), name: t.name, color: t.color || '#888' });
+            saveHall(h);
+        }
+        function syncHall() { try { recordChampion(loadCup()); } catch (e) {} }
         function findTeamByName(A, name) {
             const cur = A.leagues.find(l => l.id === A.active);
             const order = [cur].concat(A.leagues.filter(l => l !== cur));
@@ -4687,14 +4712,26 @@
             return { name: sc.name, team: st ? st.name : '?', side: sc.team, home: th ? th.name : '?', away: ta ? ta.name : '?', hs, as, min: sc.min, clip: sc.clip, league: L.name, date: m.date };
         }
         function reelsHtml(L) {
-            const yg = loadYG();
+            const hall = loadHall();
+            const years = Object.keys(hall.goals).concat(hall.champions.map(c => String(c.year))).filter((v, i, arr) => arr.indexOf(v) === i).sort((x, y) => y - x);
             let h = '';
-            if (yg) {
-                h += '<div class="rounded-2xl bg-slate-900/90 border border-amber-400/40 p-3 mb-2"><div class="text-[11px] font-extrabold text-amber-300">🏅 Yılın Golü</div>' +
-                    '<div class="flex items-center gap-2 mt-1.5"><button type="button" data-act="watchyg" class="px-2 py-1 rounded-lg bg-slate-800 border border-slate-700 text-emerald-300 text-xs font-bold cursor-pointer">▶</button>' +
-                    '<div class="flex-1 min-w-0"><div class="text-xs font-bold text-white truncate">' + esc(yg.name) + ' · ' + esc(yg.team) + '</div>' +
-                    '<div class="text-[10px] text-slate-400 truncate">' + esc(yg.home) + ' ' + (yg.hs | 0) + '-' + (yg.as | 0) + ' ' + esc(yg.away) + " · " + (yg.min | 0) + "' · " + esc(yg.league || '') + '</div></div>' +
-                    '<button type="button" data-act="clearyg" class="text-[11px] text-slate-500 cursor-pointer">✖</button></div></div>';
+            if (years.length) {
+                h += '<div class="rounded-2xl bg-slate-900/90 border border-amber-400/40 p-3 mb-2 space-y-2"><div class="text-[11px] font-extrabold text-amber-300">🏛️ Şeref Salonu</div>';
+                years.forEach(y => {
+                    const g = hall.goals[y];
+                    h += '<div class="space-y-1"><div class="text-[10px] font-bold text-slate-500">' + esc(y) + '</div>';
+                    if (g) {
+                        h += '<div class="flex items-center gap-2"><button type="button" data-act="watchyg" data-y="' + esc(y) + '" class="px-2 py-1 rounded-lg bg-slate-800 border border-slate-700 text-emerald-300 text-xs font-bold cursor-pointer">▶</button>' +
+                            '<div class="flex-1 min-w-0"><div class="text-xs font-bold text-white truncate">🏅 ' + esc(g.name) + ' · ' + esc(g.team) + '</div>' +
+                            '<div class="text-[10px] text-slate-400 truncate">' + esc(g.home) + ' ' + (g.hs | 0) + '-' + (g.as | 0) + ' ' + esc(g.away) + " · " + (g.min | 0) + "' · Yılın Golü</div></div>" +
+                            '<button type="button" data-act="clearyg" data-y="' + esc(y) + '" class="text-[11px] text-slate-500 cursor-pointer">✖</button></div>';
+                    }
+                    hall.champions.filter(c => String(c.year) === y).forEach(c => {
+                        h += '<div class="flex items-center gap-2 text-xs"><span class="w-3.5 h-3.5 rounded-full border border-slate-600 shrink-0" style="background:' + esc(c.color) + '"></span><span class="flex-1 min-w-0 font-bold text-white truncate">🏆 ' + esc(c.name) + '</span><span class="text-[10px] text-slate-500">Turnuva şampiyonu</span></div>';
+                    });
+                    h += '</div>';
+                });
+                h += '</div>';
             }
             const rs = (L.reels || []);
             if (rs.length) {
@@ -4961,17 +4998,17 @@
                 if (saveAll(A)) { renderLeague(); toast('✅ ' + t.name + ' bu lige alındı' + (nr ? ' · ' + nr + ' gol tekrarı' : '') + (nv ? ' · ' + nv + ' değer' : '')); }
                 else toast('⚠️ Kaydedilemedi (depolama dolu olabilir)');
             } else if (act === 'watchyg') {
-                watchReel(loadYG());
+                watchReel(loadHall().goals[el.getAttribute('data-y')]);
             } else if (act === 'watchreel') {
                 watchReel((L.reels || []).find(r => r.id === id));
             } else if (act === 'setyg') {
                 const r = (L.reels || []).find(x => x.id === id);
-                if (r) { const g = Object.assign({}, r); delete g.id; g.league = r.from || L.name; saveYG(g); renderLeague(); toast('🏅 Yılın Golü: ' + r.name); }
+                if (r) { const g = Object.assign({}, r); delete g.id; g.league = r.from || L.name; if (setYearGoal(g)) { renderLeague(); toast('🏅 ' + curYear() + ' Yılın Golü: ' + r.name); } }
             } else if (act === 'yeargoal') {
                 const m = L.matches.find(x => x.id === id), gi = parseInt(el.getAttribute('data-g'), 10);
-                if (m && m.scorers[gi] && m.scorers[gi].clip) { saveYG(reelFromMatch(L, m, gi)); renderLeague(); toast('🏅 Yılın Golü: ' + m.scorers[gi].name); }
+                if (m && m.scorers[gi] && m.scorers[gi].clip) { if (setYearGoal(reelFromMatch(L, m, gi))) { renderLeague(); toast('🏅 ' + curYear() + ' Yılın Golü: ' + m.scorers[gi].name); } }
             } else if (act === 'clearyg') {
-                saveYG(null); renderLeague();
+                const hh = loadHall(); delete hh.goals[el.getAttribute('data-y')]; saveHall(hh); renderLeague();
             } else if (act === 'watch') {
                 watchGoal(id, parseInt(el.getAttribute('data-g'), 10));
             } else if (act === 'clearclips') {
@@ -5010,7 +5047,7 @@
                 window.scrollTo(0, 0);
                 toast('✏️ ' + t.name + ' Ev Sahibi kartına yüklendi. Aynı isimle kaydedersen güncellenir.');
             } else if (act === 'export') {
-                const blob = new Blob([JSON.stringify(Object.assign(loadAll(), { tournament: loadCup(), goalOfYear: loadYG() }))], { type: 'application/json' });
+                const blob = new Blob([JSON.stringify(Object.assign(loadAll(), { tournament: loadCup(), hall: loadHall() }))], { type: 'application/json' });
                 const url = URL.createObjectURL(blob);
                 const a = document.createElement('a');
                 a.href = url;
@@ -5066,7 +5103,8 @@
                         const act = leagues.some(l => l.id === raw.active) ? raw.active : leagues[0].id;
                         if (saveAll({ active: act, leagues })) {
                             if (raw.tournament && Array.isArray(raw.tournament.rounds)) saveCup(raw.tournament);
-                            if (raw.goalOfYear && typeof raw.goalOfYear.clip === 'string') saveYG(raw.goalOfYear);
+                            if (raw.hall && typeof raw.hall === 'object') saveHall(sanitizeHall(raw.hall));
+                            else if (raw.goalOfYear && typeof raw.goalOfYear.clip === 'string') { const hh = loadHall(); hh.goals[String(raw.goalOfYear.year || 2026)] = raw.goalOfYear; saveHall(hh); }
                             leagueSel.home = leagueSel.away = null; renderLeague(); toast('✅ Yedek yüklendi');
                         }
                     }
