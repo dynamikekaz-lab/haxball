@@ -4774,6 +4774,12 @@
         }
         // TRANSFER DÖNEMİ: sistem form + piyasa değerine göre teklif hazırlar (serbest oyuncu alımı + değer dengeli takas), sen tek tek onaylarsın.
         let lastSellOnMsg = '';
+        // 🤖 AI YÖNETSİN: seçili kulüplerin transferlerini AI yönetir; seçilmeyenlerin (senin) alım-satım kararı sende
+        const AICLUB_KEY = 'haxballAiClubs';
+        let aiClubs = new Set(), aiPanelOpen = false;
+        try { aiClubs = new Set(JSON.parse(localStorage.getItem(AICLUB_KEY) || '[]').map(String)); } catch (e) {}
+        function saveAiClubs() { try { localStorage.setItem(AICLUB_KEY, JSON.stringify(Array.from(aiClubs))); } catch (e) {} }
+        function isAi(lid, tid) { return aiClubs.has(lid + ':' + tid); }
         // Oyuncu satılırken/takas edilirken eski takımın payını öder (satan takımın bütçesinden, bütçe yettiği kadar)
         function paySellOn(A, Lsrc, seller, buyer, n, value) {
             const oldSo = Lsrc.sellOn && Lsrc.sellOn[n];
@@ -4947,7 +4953,7 @@
                 if (A.leagues.some(l => l.teams.some(t => squadNames(t).includes(o.inn)))) return false;
                 Lb = A.leagues.find(l => l.id === o.il) || La;
             }
-            const dl = mvOf(Lb, o.inn) - mvOf(La, o.out);
+            const dl = mvOf(Lb, o.inn) - mvOf(La, o.out) + (o.extra || 0);   // extra: AI'ın istediği nakit fark
             if (Number.isFinite(ta.budget) && dl > ta.budget) return false;
             if (tb && Number.isFinite(tb.budget) && -dl > tb.budget) return false;
             if (Number.isFinite(ta.budget)) ta.budget = Math.round((ta.budget - dl) * 10) / 10;
@@ -5109,16 +5115,16 @@
                 id: String(x.id || uid()), at: Number.isFinite(+x.at) ? +x.at : 0, kind: String(x.kind || 'move').slice(0, 8),
                 inn: String(x.inn).slice(0, 10), out: String(x.out || '').slice(0, 10), price: Number.isFinite(+x.price) ? +x.price : 0,
                 so: Math.max(0, Math.min(50, +x.so || 0)), so2: Math.max(0, Math.min(50, +x.so2 || 0)),
-                a: String(x.a || '').slice(0, 40), b: String(x.b || '').slice(0, 40), race: !!x.race, note: String(x.note || '').slice(0, 80)
+                a: String(x.a || '').slice(0, 40), b: String(x.b || '').slice(0, 40), race: !!x.race, auto: !!x.auto, note: String(x.note || '').slice(0, 80)
             }));
         }
         function pushTransfer(e) {
-            try { const a = loadTransfers(); a.push(Object.assign({ id: uid(), at: Date.now(), out: '', price: 0, so: 0, so2: 0, a: '', b: '', race: false, note: '' }, e)); saveTransfers(a); } catch (err) {}
+            try { const a = loadTransfers(); a.push(Object.assign({ id: uid(), at: Date.now(), out: '', price: 0, so: 0, so2: 0, a: '', b: '', race: false, note: '', auto: false }, e)); saveTransfers(a); } catch (err) {}
         }
-        function logTransfer(A, o, note) {
+        function logTransfer(A, o, note, auto) {
             const multi = A.leagues.length > 1;
             const tn = (lid, tid) => { const r = findTeam(A, lid, tid); return r ? r.t.name + (multi ? ' (' + r.l.name + ')' : '') : '?'; };
-            pushTransfer({ kind: o.kind, inn: o.inn, out: o.out || '', price: o.price || 0, so: o.so || 0, so2: o.so2 || 0, a: tn(o.al, o.a), b: o.b ? tn(o.bl, o.b) : '', race: o.kind === 'bid' && (o.log || []).length > 0, note: note || '' });
+            pushTransfer({ auto: !!auto, kind: o.kind, inn: o.inn, out: o.out || '', price: o.kind === 'swap' ? (o.extra || 0) : (o.price || 0), so: o.so || 0, so2: o.so2 || 0, a: tn(o.al, o.a), b: o.b ? tn(o.bl, o.b) : '', race: o.kind === 'bid' && (o.log || []).length > 0, note: note || '' });
         }
         function showTransferHistory() {
             const ov = document.createElement('div');
@@ -5144,12 +5150,13 @@
                 if (!rows.length) { q('list').innerHTML = '<div class="text-[11px] text-slate-500 text-center py-6">Kayıt yok. Onaylanan transferler burada birikir.</div>'; return; }
                 q('list').innerHTML = rows.slice(0, 300).map(e => {
                     let head, det = '';
-                    if (e.kind === 'swap') { head = '🔄 Takas · ' + esc(e.a) + ' ⇄ ' + esc(e.b); det = esc(e.a) + ' verdi: <b>' + esc(e.out) + '</b><br>' + esc(e.b) + ' verdi: <b>' + esc(e.inn) + '</b>' + so(e.out, e.a, e.so) + so(e.inn, e.b, e.so2); }
+                    if (e.kind === 'swap') { head = '🔄 Takas · ' + esc(e.a) + ' ⇄ ' + esc(e.b); det = esc(e.a) + ' verdi: <b>' + esc(e.out) + '</b><br>' + esc(e.b) + ' verdi: <b>' + esc(e.inn) + '</b>' + so(e.out, e.a, e.so) + so(e.inn, e.b, e.so2) + (e.price > 0 ? '<br>+' + e.price + ' M nakit fark (' + esc(e.a) + ' öder)' : ''); }
                     else if (e.kind === 'buy') { head = '💰 Nakit alım · ' + esc(e.inn); det = esc(e.b) + ' → <b>' + esc(e.a) + '</b> · ' + e.price + ' M' + so(e.inn, e.b, e.so); }
                     else if (e.kind === 'bid') { head = (e.race ? '🏁 Yarış · ' : '⚡ Direkt alım · ') + esc(e.inn); det = esc(e.b || 'Serbest') + ' → <b>' + esc(e.a) + '</b> · ' + e.price + ' M' + so(e.inn, e.b || '', e.b ? e.so : 0); }
                     else if (e.kind === 'fa') { head = '🆓 Serbest alım · ' + esc(e.inn); det = esc(e.a) + ' aldı, <b>' + esc(e.out) + '</b> ayrıldı'; }
                     else if (e.kind === 'acad') { head = '🎓 Altyapı · ' + esc(e.inn); det = esc(e.a) + ' · ' + e.price + ' M'; }
                     else { head = '🔁 Taşıma · ' + esc(e.inn); det = esc(e.b || 'Serbest') + ' → <b>' + esc(e.a || 'Serbest') + '</b>'; }
+                    if (e.auto) head = '🤖 ' + head;
                     const d = e.at ? new Date(e.at).toLocaleString('tr-TR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : '';
                     return '<div class="rounded-xl bg-slate-800/70 border border-slate-700 p-2"><div class="flex items-start justify-between gap-2"><div class="text-[11px] font-bold text-white">' + head + '</div><div class="text-[9px] text-slate-500 whitespace-nowrap">' + esc(d) + '</div></div><div class="text-[11px] text-slate-300">' + det + (e.note ? '<br><span class="text-emerald-300">' + esc(e.note.replace(/^ · /, '')) + '</span>' : '') + '</div></div>';
                 }).join('');
@@ -5159,6 +5166,49 @@
             q('close').addEventListener('click', () => ov.remove());
             q('clear').addEventListener('click', () => { if (confirm('Tüm transfer geçmişi silinsin mi? Bu geri alınamaz.')) { saveTransfers([]); draw(); } });
             draw();
+        }
+        // AI satıcı: teklifi kabul eder ya da daha yüksek ister (yalnızca senin kulübünden AI kulübe gelen teklifler)
+        function aiDecide(A, o) {
+            if (!aiClubs.size || !o.b || !isAi(o.bl, o.b) || isAi(o.al, o.a)) return { ok: true };
+            const La = A.leagues.find(l => l.id === o.al), Lb = A.leagues.find(l => l.id === o.bl);
+            if (!La || !Lb) return { ok: true };
+            if (o.kind === 'buy' || o.kind === 'bid') {
+                if ((o.log || []).length) return { ok: true };           // yarış sonucu zaten rekabetle belirlendi
+                const ask = o.ask || Math.max(0.5, Math.round(mvOf(Lb, o.inn) * (0.95 + Math.random() * 0.3) * 2) / 2);
+                return o.price >= ask ? { ok: true } : { ok: false, ask };
+            }
+            if (o.kind === 'swap') {
+                const ask = o.ask || Math.max(0.5, Math.round(mvOf(Lb, o.inn) * (0.95 + Math.random() * 0.3) * 2) / 2);
+                const have = mvOf(La, o.out) + (o.extra || 0);
+                if (have >= ask) return { ok: true };
+                return { ok: false, ask, extra: Math.ceil((ask - mvOf(La, o.out)) * 2) / 2 };
+            }
+            return { ok: true };
+        }
+        // İki tarafı da AI olan teklifler kendiliğinden gerçekleşir; aynı oyuncuya birden çok AI teklifi varsa yarışla çözülür.
+        function autoAiDeals(A, offers) {
+            const bothAi = o => isAi(o.al, o.a) && (o.kind === 'fa' || !o.b || isAi(o.bl, o.b));
+            const aiOffers = offers.filter(bothAi), keep = offers.filter(o => !bothAi(o));
+            const contested = new Set(keep.filter(o => o.kind !== 'acad').map(o => o.inn));   // senin tekliflerinle çakışan oyuncuda öncelik sende
+            const groups = {};
+            aiOffers.forEach(o => { if (!contested.has(o.inn)) (groups[o.inn] = groups[o.inn] || []).push(o); });
+            let n = 0;
+            Object.keys(groups).forEach(inn => {
+                let g = groups[inn];
+                if (g.length > 1) {
+                    const f0 = g[0];
+                    const hl = A.leagues.find(l => l.id === (f0.kind !== 'fa' ? f0.bl : f0.il));
+                    const ht = f0.kind !== 'fa' ? findTeam(A, f0.bl, f0.b) : null;
+                    if (!hl || (f0.kind !== 'fa' && !ht)) return;
+                    const res = runAuction(A, { l: hl, t: ht ? ht.t : null, n: inn }, null, 0, new Set(g.map(x => x.al + ':' + x.a)));
+                    if (!res) return;
+                    const wo = g.find(x => x.al === res.al && x.a === res.a);
+                    res.so = wo ? ((wo.kind === 'swap' ? wo.so2 : wo.so) || 0) : 0;
+                    g = [res];
+                }
+                if (applyOffer(A, g[0])) { logTransfer(A, g[0], lastSellOnMsg, true); n++; }
+            });
+            return { n, keep };
         }
         function bidHtml() {
             const A = loadAll(), multi = A.leagues.length > 1;
@@ -5194,6 +5244,14 @@
             let h = '<div class="rounded-2xl bg-slate-900/90 border border-slate-800 p-3 mt-3 space-y-2"><div class="flex items-center justify-between gap-2">' +
                 '<div class="text-[11px] font-semibold text-slate-400">🔁 Transfer Dönemi (tüm ligler)</div>' +
                 '<div class="flex gap-1.5"><button type="button" data-act="thist" class="px-2.5 py-1 rounded-lg bg-slate-800 border border-slate-700 text-[11px] font-bold text-sky-300 cursor-pointer">📜 Geçmiş</button><button type="button" data-act="mkoffers" class="px-2.5 py-1 rounded-lg bg-slate-800 border border-slate-700 text-[11px] font-bold text-emerald-300 cursor-pointer">🎲 Rastgele teklifler</button></div></div>';
+            {
+                const total = A.leagues.reduce((n, l) => n + l.teams.length, 0);
+                const chip = 'px-2 py-0.5 rounded-lg bg-slate-900 border border-slate-700 text-[10px] font-bold cursor-pointer';
+                h += '<details class="rounded-xl bg-slate-800/50 border border-slate-700 p-2"' + (aiPanelOpen ? ' open' : '') + '><summary class="text-[11px] font-bold text-slate-300 cursor-pointer">🤖 AI yönetsin: ' + aiClubs.size + ' / ' + total + ' kulüp seçili</summary><div class="pt-2 space-y-2">' +
+                    '<div class="text-[10px] text-slate-500">Seçili kulüplerin transferlerini AI yönetir: birbirleriyle anlaşmaları kendiliğinden gerçekleşir; senin kulübünün teklifini kabul eder ya da daha yüksek teklif ister. Seçmediğin kulüplerin alım ve satışları senin kararın. Hiç kulüp seçili değilse her teklif sana düşer.</div>' +
+                    '<div class="flex gap-2"><button type="button" data-act="aiall" class="' + chip + ' text-emerald-300">Hepsini seç</button><button type="button" data-act="ainone" class="' + chip + ' text-slate-300">Seçimi temizle</button></div>' +
+                    A.leagues.map(l => '<div><div class="text-[10px] font-bold text-slate-400">' + esc(l.name) + '</div><div class="flex flex-wrap gap-1.5 pt-1">' + l.teams.map(t => '<label class="flex items-center gap-1 px-2 py-1 rounded-lg bg-slate-900 border border-slate-700 text-[10px] font-bold text-slate-200 cursor-pointer"><input type="checkbox" data-aiclub="' + esc(l.id + ':' + t.id) + '"' + (isAi(l.id, t.id) ? ' checked' : '') + '>' + esc(t.name) + '</label>').join('') + '</div></div>').join('') + '</div></details>';
+            }
             if (transferOffers) {
                 const f = leagueFormMap(), ps = n => formScore(f.byName[n]).toFixed(1);
                 const nm = (lid, id) => { const r = findTeam(A, lid, id); return r ? r.t.name + (multi ? ' (' + r.l.name + ')' : '') : '?'; };
@@ -5204,13 +5262,14 @@
                 transferOffers.list.forEach(o => {
                     let body;
                     if (o.kind === 'acad') body = '<div class="text-[11px] font-bold text-white">' + esc(nm(o.al, o.a)) + ' · 🎓 altyapıdan oyuncu</div><div class="text-[11px] text-slate-300">Yeni oyuncu: <b>' + esc(o.inn) + '</b> <span class="text-slate-500">(değer ' + ACADEMY_COST + 'M · bedel ' + ACADEMY_COST + 'M bütçeden · yedek kadroya girer)</span></div>';
-                    else if (o.kind === 'bid') body = '<div class="text-[11px] font-bold text-white">🏷️ Transfer yarışı: ' + esc(o.inn) + '</div><div class="text-[11px] text-slate-300">Kazanan: <b class="text-emerald-300">' + esc(nm(o.al, o.a)) + '</b>' + (o.my ? ' (senin takımın)' : '') + ' · <b>' + o.price + ' M</b>' + (o.b ? '<br>Satan takım: ' + esc(nm(o.bl, o.b)) + ' (parayı alır)' + (o.so > 0 ? '<br>🤝 Satış payı: sonraki satışta ' + esc(nm(o.bl, o.b)) + ' %' + o.so + ' alır' : '') : '<br>Serbest oyuncu (bedel bütçeden düşer)') + '<br><span class="text-slate-500">Teklifler: ' + o.log.map(x => esc(x.n) + ' ' + x.p).join(' → ') + '</span>' + (o.noCount ? '<br><span class="text-slate-500">Katılmayanlar (' + o.noCount + '): ' + o.no.map(esc).join(', ') + (o.noCount > o.no.length ? ' ...' : '') + '</span>' : '') + '</div>';
-                    else if (o.kind === 'buy') body = '<div class="text-[11px] font-bold text-white">💰 ' + esc(nm(o.al, o.a)) + ' · nakit alım teklifi</div><div class="text-[11px] text-slate-300">İstenen: ' + pl(o.inn, o.bl) + '<br>Satan: ' + esc(nm(o.bl, o.b)) + ' · bedel <b class="text-emerald-300">' + o.price + ' M</b> <span class="text-slate-500">(oyuncu verilmez, sadece bütçeden)</span>' + (o.so > 0 ? '<br>🤝 Satış payı: sonraki satışta ' + esc(nm(o.bl, o.b)) + ' %' + o.so + ' alır' : '') + '</div>';
+                    else if (o.kind === 'bid' && (o.log || []).length) body = '<div class="text-[11px] font-bold text-white">🏷️ Transfer yarışı: ' + esc(o.inn) + '</div><div class="text-[11px] text-slate-300">Kazanan: <b class="text-emerald-300">' + esc(nm(o.al, o.a)) + '</b>' + (o.my ? ' (senin takımın)' : '') + ' · <b>' + o.price + ' M</b>' + (o.b ? '<br>Satan takım: ' + esc(nm(o.bl, o.b)) + ' (parayı alır)' + (o.so > 0 ? '<br>🤝 Satış payı: sonraki satışta ' + esc(nm(o.bl, o.b)) + ' %' + o.so + ' alır' : '') : '<br>Serbest oyuncu (bedel bütçeden düşer)') + '<br><span class="text-slate-500">Teklifler: ' + o.log.map(x => esc(x.n) + ' ' + x.p).join(' → ') + '</span>' + (o.noCount ? '<br><span class="text-slate-500">Katılmayanlar (' + o.noCount + '): ' + o.no.map(esc).join(', ') + (o.noCount > o.no.length ? ' ...' : '') + '</span>' : '') + '</div>';
+                    else if (o.kind === 'buy' || o.kind === 'bid') body = '<div class="text-[11px] font-bold text-white">💰 ' + esc(nm(o.al, o.a)) + (o.kind === 'bid' ? ' · direkt alım teklifi' : ' · nakit alım teklifi') + '</div><div class="text-[11px] text-slate-300">İstenen: ' + pl(o.inn, o.bl) + '<br>Satan: ' + esc(o.b ? nm(o.bl, o.b) : 'Serbest') + ' · bedel <b class="text-emerald-300">' + o.price + ' M</b> <span class="text-slate-500">(oyuncu verilmez, sadece bütçeden)</span>' + (o.so > 0 ? '<br>🤝 Satış payı: sonraki satışta ' + esc(nm(o.bl, o.b)) + ' %' + o.so + ' alır' : '') + '</div>';
                     else if (o.kind === 'swap') body = '<div class="text-[11px] font-bold text-white">' + esc(nm(o.al, o.a)) + ' ⇄ ' + esc(nm(o.bl, o.b)) + '</div><div class="text-[11px] text-slate-300">' + esc(nm(o.al, o.a)) + ' verir: ' + pl(o.out, o.al) + '<br>' + esc(nm(o.bl, o.b)) + ' verir: ' + pl(o.inn, o.bl) + (o.so > 0 ? '<br>🤝 ' + esc(nm(o.al, o.a)) + ', ' + esc(o.out) + ' sonraki satılırsa %' + o.so + ' alır' : '') + (o.so2 > 0 ? '<br>🤝 ' + esc(nm(o.bl, o.b)) + ', ' + esc(o.inn) + ' sonraki satılırsa %' + o.so2 + ' alır' : '') + '</div>';
                     else body = '<div class="text-[11px] font-bold text-white">' + esc(nm(o.al, o.a)) + ' · serbest oyuncu alımı</div><div class="text-[11px] text-slate-300">Gelir: ' + pl(o.inn, o.il) + '<br>Ayrılır: ' + pl(o.out, o.al) + '</div>';
                     const raceN = (o.kind === 'swap' || o.kind === 'fa' || o.kind === 'buy') ? (wantCount[o.inn] || 0) : 0;
                     const raceRow = raceN > 1 ? '<div class="flex items-center justify-between gap-2 rounded-lg bg-amber-500/10 border border-amber-500/30 px-2 py-1"><span class="text-[10px] font-bold text-amber-300">⚔️ ' + esc(o.inn) + ' için ' + raceN + ' takım teklif verdi</span><button type="button" data-act="offerrace" data-id="' + esc(o.id) + '" class="px-2 py-1 rounded-lg bg-amber-500/20 border border-amber-500/50 text-[11px] font-bold text-amber-300 cursor-pointer whitespace-nowrap">🏁 Yarış yap</button></div>' : '';
-                    h += '<div class="rounded-xl bg-slate-800/70 border border-slate-700 p-2 space-y-1">' + body + raceRow +
+                    const cRow = o.counter ? '<div class="rounded-lg bg-amber-500/10 border border-amber-500/30 px-2 py-1 text-[10px] font-bold text-amber-300">🗣️ ' + esc(nm(o.bl, o.b)) + ' daha yüksek teklif istedi: ' + (o.kind === 'swap' ? '+' + o.extra + ' M nakit fark ödenmeli' : o.ask + ' M (ilk teklifin ' + o.orig + ' M). Onaylarsan ' + o.ask + ' M ile kabul eder') + '</div>' : '';
+                    h += '<div class="rounded-xl bg-slate-800/70 border border-slate-700 p-2 space-y-1">' + body + raceRow + cRow +
                         '<div class="flex gap-2"><button type="button" data-act="offeryes" data-id="' + esc(o.id) + '" class="flex-1 py-1 rounded-lg bg-emerald-600/80 text-[11px] font-bold text-white cursor-pointer">✅ Onayla</button>' +
                         '<button type="button" data-act="offerno" data-id="' + esc(o.id) + '" class="flex-1 py-1 rounded-lg bg-slate-700 text-[11px] font-bold text-slate-200 cursor-pointer">✖ Reddet</button></div></div>';
                 });
@@ -5717,6 +5776,14 @@
                 saveLeague(L); renderLeague(); toast('🔁 ' + n + ' → ' + (to ? to.name : 'Serbest'));
                 return;
             }
+            if (e.target.hasAttribute && e.target.hasAttribute('data-aiclub')) {
+                const k = e.target.getAttribute('data-aiclub');
+                if (e.target.checked) aiClubs.add(k); else aiClubs.delete(k);
+                saveAiClubs(); aiPanelOpen = true;
+                const dt = e.target.closest('details'), sm = dt && dt.querySelector('summary');
+                if (sm) sm.textContent = sm.textContent.replace(/: \d+ \//, ': ' + aiClubs.size + ' /');
+                return;
+            }
             if (e.target.hasAttribute && e.target.hasAttribute('data-cap')) {
                 const L = loadLeague();
                 const t = L.teams.find(x => x.id === e.target.getAttribute('data-cap'));
@@ -5828,6 +5895,14 @@
                     if (!my) { toast('Benim takımım alanından bir takım seç'); return; }
                     if (!Number.isFinite(amt) || amt < 0) { toast('Teklif tutarını yaz'); return; }
                     const o = { id: uid(), kind: 'bid', a: my.t.id, al: my.l.id, b: hold.t ? hold.t.id : null, bl: hold.l.id, inn: hold.n, price: Math.round(amt * 10) / 10, my: true, log: [], so: hold.t ? (parseInt(bidForm.so, 10) || 0) : 0 };
+                    const dec = aiDecide(A, o);
+                    if (!dec.ok) {
+                        o.ask = dec.ask; o.counter = true; o.orig = o.price; o.price = dec.ask;
+                        transferOffers = transferOffers || { list: [] };
+                        transferOffers.list.push(o);
+                        renderLeague(); toast('🗣️ ' + hold.t.name + ' en az ' + dec.ask + ' M istiyor · kartta onaylarsan alırsın');
+                        return;
+                    }
                     if (applyOffer(A, o) && saveAll(A)) { logTransfer(A, o, lastSellOnMsg); renderLeague(); toast('⚡ ' + hold.n + ' → ' + my.t.name + ' · ' + o.price + ' M' + lastSellOnMsg); }
                     else toast('⚠️ Olmadı: bütçe yetmiyor ya da yedek kadro dolu (12)');
                     return;
@@ -5844,8 +5919,17 @@
                     toast('🏷️ Yarış bitti: ' + (wr ? wr.t.name : '?') + ' ' + res.price + ' M · onayını bekliyor');
                 });
             } else if (act === 'mkoffers') {
-                transferOffers = { list: buildOffers(loadAll()) };
+                const A = loadAll();
+                let list = buildOffers(A), auto = 0;
+                if (aiClubs.size) { const r = autoAiDeals(A, list); list = r.keep; auto = r.n; if (auto) saveAll(A); }
+                transferOffers = { list };
                 renderLeague();
+                if (auto) toast('🤖 ' + auto + ' AI transferi gerçekleşti · ' + list.length + ' teklif senin kararını bekliyor');
+            } else if (act === 'aiall' || act === 'ainone') {
+                const A = loadAll();
+                aiClubs = new Set();
+                if (act === 'aiall') A.leagues.forEach(l => l.teams.forEach(t => aiClubs.add(l.id + ':' + t.id)));
+                saveAiClubs(); aiPanelOpen = true; renderLeague();
             } else if (act === 'thist') {
                 showTransferHistory();
             } else if (act === 'offerrace') {
@@ -5873,6 +5957,15 @@
                 const o = transferOffers && transferOffers.list.find(x => x.id === id);
                 if (o) {
                     const A = loadAll();
+                    const dec = aiDecide(A, o);
+                    if (!dec.ok) {                                           // AI satıcı daha yüksek teklif istiyor
+                        o.ask = dec.ask; o.counter = true;
+                        if (o.kind === 'swap') o.extra = dec.extra; else { if (o.orig == null) o.orig = o.price; o.price = dec.ask; }
+                        renderLeague();
+                        const sr = findTeam(A, o.bl, o.b);
+                        toast('🗣️ ' + (sr ? sr.t.name : 'Satan takım') + ' daha yüksek teklif istiyor: ' + (o.kind === 'swap' ? '+' + o.extra + ' M fark' : dec.ask + ' M') + ' · onaylarsan kabul eder');
+                        return;
+                    }
                     const ok = applyOffer(A, o);
                     transferOffers.list = transferOffers.list.filter(x => x.id !== id && !(ok && o.kind !== 'acad' && x.kind !== 'acad' && x.inn === o.inn));
                     if (ok) { saveAll(A); logTransfer(A, o, lastSellOnMsg); }
@@ -5946,7 +6039,7 @@
                 window.scrollTo(0, 0);
                 toast('✏️ ' + t.name + ' Ev Sahibi kartına yüklendi. Aynı isimle kaydedersen güncellenir.');
             } else if (act === 'export') {
-                const blob = new Blob([JSON.stringify(Object.assign(loadAll(), { tournament: loadCup(), hall: loadHall(), transfers: loadTransfers() }))], { type: 'application/json' });
+                const blob = new Blob([JSON.stringify(Object.assign(loadAll(), { tournament: loadCup(), hall: loadHall(), transfers: loadTransfers(), aiClubs: Array.from(aiClubs) }))], { type: 'application/json' });
                 const url = URL.createObjectURL(blob);
                 const a = document.createElement('a');
                 a.href = url;
@@ -6003,6 +6096,7 @@
                         if (saveAll({ active: act, leagues })) {
                             if (raw.tournament && Array.isArray(raw.tournament.rounds)) saveCup(raw.tournament);
                             if (Array.isArray(raw.transfers)) saveTransfers(sanitizeTransfers(raw.transfers));
+                            if (Array.isArray(raw.aiClubs)) { aiClubs = new Set(raw.aiClubs.map(String).slice(0, 500)); saveAiClubs(); }
                             if (raw.hall && typeof raw.hall === 'object') saveHall(sanitizeHall(raw.hall));
                             else if (raw.goalOfYear && typeof raw.goalOfYear.clip === 'string') { const hh = loadHall(); hh.goals[String(raw.goalOfYear.year || 2026)] = raw.goalOfYear; saveHall(hh); }
                             leagueSel.home = leagueSel.away = null; renderLeague(); toast('✅ Yedek yüklendi');
