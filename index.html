@@ -5169,7 +5169,7 @@
         }
         // AI satıcı: teklifi kabul eder ya da daha yüksek ister (yalnızca senin kulübünden AI kulübe gelen teklifler)
         function aiDecide(A, o) {
-            if (!aiClubs.size || !o.b || !isAi(o.bl, o.b) || isAi(o.al, o.a)) return { ok: true };
+            if (o.agreed || !aiClubs.size || !o.b || !isAi(o.bl, o.b) || isAi(o.al, o.a)) return { ok: true };
             const La = A.leagues.find(l => l.id === o.al), Lb = A.leagues.find(l => l.id === o.bl);
             if (!La || !Lb) return { ok: true };
             if (o.kind === 'buy' || o.kind === 'bid') {
@@ -5209,6 +5209,35 @@
                 if (applyOffer(A, g[0])) { logTransfer(A, g[0], lastSellOnMsg, true); n++; }
             });
             return { n, keep };
+        }
+        // 🤝 PAZARLIK: gelen teklifte istediğin bedeli yaz; AI karşı taraf belli bir ihtimalle kabul eder
+        function haggleInfo(A, o) {
+            if (!aiClubs.size || !o.b || o.kind === 'fa' || o.kind === 'acad' || o.agreed) return null;
+            if (o.kind === 'bid' && (o.log || []).length) return null;
+            const aAi = isAi(o.al, o.a), bAi = isAi(o.bl, o.b);
+            if (aAi === bAi) return null;                              // iki taraf da AI (otomatik) ya da ikisi de senin: pazarlık yok
+            return { mineIsA: !aAi };
+        }
+        // Kabul ihtimali: istek tekliften ne kadar uzaksa o kadar düşer; karşı tarafın bütçesi yetmezse 0
+        function haggleChance(A, o, X) {
+            const hi = haggleInfo(A, o);
+            if (!hi || !Number.isFinite(X)) return 0;
+            const La = A.leagues.find(l => l.id === o.al), Lb = A.leagues.find(l => l.id === o.bl);
+            const ra = findTeam(A, o.al, o.a), rb = findTeam(A, o.bl, o.b);
+            if (!La || !Lb || !ra || !rb) return 0;
+            const other = hi.mineIsA ? rb.t : ra.t;
+            if (o.kind === 'swap') {
+                const ref = Math.max(1, (mvOf(La, o.out) + mvOf(Lb, o.inn)) / 2);
+                const cur = hi.mineIsA ? -(o.extra || 0) : (o.extra || 0);   // şu an bana gelen (+) ya da benim ödediğim (−) nakit
+                const d = (X - cur) / ref;
+                if (X > 0 && Number.isFinite(other.budget) && X > other.budget) return 0;
+                return d <= 0 ? 1 : Math.max(0, 1 - d / 0.25);
+            }
+            if (X < 0.5) return 0;
+            const iAmSeller = !hi.mineIsA;
+            if (iAmSeller && Number.isFinite(other.budget) && X > other.budget) return 0;
+            const d = (iAmSeller ? (X - o.price) : (o.price - X)) / Math.max(0.5, o.price);
+            return d <= 0 ? 1 : Math.max(0, 1 - d / 0.35);
         }
         function bidHtml() {
             const A = loadAll(), multi = A.leagues.length > 1;
@@ -5269,7 +5298,9 @@
                     const raceN = (o.kind === 'swap' || o.kind === 'fa' || o.kind === 'buy') ? (wantCount[o.inn] || 0) : 0;
                     const raceRow = raceN > 1 ? '<div class="flex items-center justify-between gap-2 rounded-lg bg-amber-500/10 border border-amber-500/30 px-2 py-1"><span class="text-[10px] font-bold text-amber-300">⚔️ ' + esc(o.inn) + ' için ' + raceN + ' takım teklif verdi</span><button type="button" data-act="offerrace" data-id="' + esc(o.id) + '" class="px-2 py-1 rounded-lg bg-amber-500/20 border border-amber-500/50 text-[11px] font-bold text-amber-300 cursor-pointer whitespace-nowrap">🏁 Yarış yap</button></div>' : '';
                     const cRow = o.counter ? '<div class="rounded-lg bg-amber-500/10 border border-amber-500/30 px-2 py-1 text-[10px] font-bold text-amber-300">🗣️ ' + esc(nm(o.bl, o.b)) + ' daha yüksek teklif istedi: ' + (o.kind === 'swap' ? '+' + o.extra + ' M nakit fark ödenmeli' : o.ask + ' M (ilk teklifin ' + o.orig + ' M). Onaylarsan ' + o.ask + ' M ile kabul eder') + '</div>' : '';
-                    h += '<div class="rounded-xl bg-slate-800/70 border border-slate-700 p-2 space-y-1">' + body + raceRow + cRow +
+                    const hg = haggleInfo(A, o);
+                    const hRow = hg ? '<div class="flex items-center gap-1.5 rounded-lg bg-slate-900/70 border border-slate-700 px-2 py-1"><span class="text-[10px] text-slate-400 leading-tight">' + (o.kind === 'swap' ? 'Nakit fark<br>(+ alırım, − öderim)' : 'İstediğim<br>bedel (M)') + '</span><input type="number" step="0.5" data-hg="' + esc(o.id) + '" placeholder="M" class="w-16 px-1.5 py-1 rounded bg-slate-950 border border-slate-700 text-[11px] font-bold text-white"><span data-hgp="' + esc(o.id) + '" class="text-[10px] font-bold text-amber-300 flex-1"></span><button type="button" data-act="haggle" data-id="' + esc(o.id) + '" class="px-2 py-1 rounded-lg bg-amber-500/20 border border-amber-500/50 text-[11px] font-bold text-amber-300 cursor-pointer whitespace-nowrap">🤝 Pazarlık' + ((o.tries || 0) >= 1 ? ' (son hak)' : '') + '</button></div>' : (o.agreed ? '<div class="rounded-lg bg-emerald-500/10 border border-emerald-500/30 px-2 py-1 text-[10px] font-bold text-emerald-300">🤝 Pazarlıkla anlaşıldı</div>' : '');
+                    h += '<div class="rounded-xl bg-slate-800/70 border border-slate-700 p-2 space-y-1">' + body + raceRow + cRow + hRow +
                         '<div class="flex gap-2"><button type="button" data-act="offeryes" data-id="' + esc(o.id) + '" class="flex-1 py-1 rounded-lg bg-emerald-600/80 text-[11px] font-bold text-white cursor-pointer">✅ Onayla</button>' +
                         '<button type="button" data-act="offerno" data-id="' + esc(o.id) + '" class="flex-1 py-1 rounded-lg bg-slate-700 text-[11px] font-bold text-slate-200 cursor-pointer">✖ Reddet</button></div></div>';
                 });
@@ -5925,6 +5956,29 @@
                 transferOffers = { list };
                 renderLeague();
                 if (auto) toast('🤖 ' + auto + ' AI transferi gerçekleşti · ' + list.length + ' teklif senin kararını bekliyor');
+            } else if (act === 'haggle') {
+                const o = transferOffers && transferOffers.list.find(x => x.id === id);
+                if (!o) return;
+                const A = loadAll(), hi = haggleInfo(A, o);
+                if (!hi) { toast('Bu teklifte pazarlık yapılamaz'); return; }
+                const inp = document.querySelector('[data-hg="' + id + '"]');
+                const X = inp ? parseFloat(inp.value) : NaN;
+                if (!Number.isFinite(X) || (o.kind !== 'swap' && X < 0.5)) { toast('İstediğin tutarı yaz (M)'); return; }
+                const rr = findTeam(A, hi.mineIsA ? o.bl : o.al, hi.mineIsA ? o.b : o.a), who = rr ? rr.t.name : 'Karşı takım';
+                const chance = haggleChance(A, o, X);
+                o.tries = (o.tries || 0) + 1;
+                if (Math.random() < chance) {
+                    if (o.kind === 'swap') o.extra = Math.round((hi.mineIsA ? -X : X) * 10) / 10;
+                    else { if (o.orig == null) o.orig = o.price; o.price = Math.round(X * 10) / 10; }
+                    o.agreed = true; o.counter = false;
+                    toast('🤝 ' + who + ' kabul etti: ' + (o.kind === 'swap' ? (X >= 0 ? '+' : '') + X + ' M nakit fark' : X + ' M') + ' · onaylayabilirsin');
+                } else if (o.tries >= 2 || Math.random() < 0.25) {
+                    transferOffers.list = transferOffers.list.filter(x => x.id !== o.id);
+                    toast('🚫 ' + who + ' karşı teklifini reddetti ve teklifini geri çekti');
+                } else {
+                    toast('✖ ' + who + ' ' + X + ' M’yi kabul etmedi · eski teklif duruyor, bir hakkın daha var');
+                }
+                renderLeague();
             } else if (act === 'aiall' || act === 'ainone') {
                 const A = loadAll();
                 aiClubs = new Set();
@@ -6112,6 +6166,16 @@
                 }
             };
             r.readAsText(f);
+        });
+
+        // Pazarlık kutusuna yazarken kabul ihtimalini canlı göster
+        document.addEventListener('input', e => {
+            const hid = e.target.getAttribute && e.target.getAttribute('data-hg');
+            if (!hid) return;
+            const span = document.querySelector('[data-hgp="' + hid + '"]');
+            if (!span) return;
+            const o = transferOffers && transferOffers.list.find(x => x.id === hid), X = parseFloat(e.target.value);
+            span.textContent = (o && Number.isFinite(X)) ? '≈ %' + Math.round(haggleChance(loadAll(), o, X) * 100) + ' şans' : '';
         });
 
         // MAÇ SÜRESİ KAYDIRICISI (10 sn - 10 dk)
