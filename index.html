@@ -327,6 +327,9 @@
                 <span id="startBtnLabel">⚽ MAÇI BAŞLAT (45 SN)</span>
             </button>
         </div>
+        <div class="pt-3">
+            <button id="playModeBtn" type="button" class="w-full py-2.5 rounded-xl bg-slate-800/80 border border-slate-700 hover:bg-slate-700 text-slate-200 font-bold text-xs">🎮 OYNA MODU · tek başına sahada oyna (yatay)</button>
+        </div>
     </div>
 
     <!-- ==================== LİG EKRANI ==================== -->
@@ -6408,5 +6411,382 @@
             });
         }
     </script>
+
+<!-- ==================== 🎮 OYNA MODU (ayrı, tek kişilik; lig/isim/rakip yok) ==================== -->
+<style>
+#playMode{position:fixed;inset:0;z-index:300;background:#020617;touch-action:none;user-select:none;-webkit-user-select:none;overflow:hidden;display:none;font-family:Inter,system-ui,sans-serif}
+#playMode canvas{position:absolute;inset:0;width:100%;height:100%;display:block}
+#playMode .pm-btn{position:absolute;border-radius:50%;display:flex;flex-direction:column;align-items:center;justify-content:center;color:#fff;font-weight:800;border:2px solid rgba(255,255,255,.6);background:rgba(15,23,42,.5);touch-action:none;transform:translate(-50%,-50%);overflow:hidden;line-height:1.05;text-shadow:0 1px 2px rgba(0,0,0,.7)}
+#playMode .pm-btn .ic{font-size:1.5em}
+#playMode .pm-btn .nm{font-size:.62em;letter-spacing:.04em;opacity:.9}
+#playMode .pm-btn.down{background:rgba(56,189,248,.45);border-color:#fff}
+#playMode .pm-btn .fill{position:absolute;inset:0;border-radius:50%;pointer-events:none}
+#playMode .pm-btn .cd{position:absolute;inset:0;border-radius:50%;background:rgba(2,6,23,.72);display:none;align-items:center;justify-content:center;font-size:1.25em;font-weight:900;pointer-events:none}
+#playMode .edit{outline:2px dashed #fde047;outline-offset:3px}
+#playMode #pmStick{border-radius:50%;background:rgba(15,23,42,.35);border:2px solid rgba(255,255,255,.4)}
+#playMode #pmKnob{position:absolute;left:50%;top:50%;width:46%;height:46%;border-radius:50%;background:rgba(255,255,255,.55);border:2px solid #fff;transform:translate(-50%,-50%);pointer-events:none}
+#playMode .pm-top{position:absolute;top:calc(env(safe-area-inset-top,0px) + 6px);display:flex;gap:6px;align-items:center;z-index:5}
+#playMode .pm-chip{background:rgba(15,23,42,.72);border:1px solid rgba(148,163,184,.4);color:#e2e8f0;border-radius:12px;padding:6px 10px;font-size:12px;font-weight:800;touch-action:manipulation}
+#playMode #pmPanel{position:absolute;left:50%;top:calc(env(safe-area-inset-top,0px) + 6px);transform:translateX(-50%);background:rgba(15,23,42,.92);border:1px solid #475569;border-radius:14px;padding:8px 12px;color:#e2e8f0;font-size:12px;font-weight:700;display:none;z-index:9;max-width:94vw}
+#playMode #pmPanel .row{display:flex;gap:10px;align-items:center;flex-wrap:wrap;justify-content:center;margin:3px 0}
+#playMode #pmPanel input[type=range]{width:110px}
+#playMode #pmRotate{position:absolute;inset:0;background:rgba(2,6,23,.94);color:#fde047;display:none;align-items:center;justify-content:center;font-size:18px;font-weight:900;text-align:center;z-index:20;padding:20px}
+#playMode .pm-sw{width:22px;height:22px;border-radius:50%;border:2px solid #fff;display:inline-block}
+</style>
+<div id="playMode">
+    <canvas id="pmCanvas"></canvas>
+    <div class="pm-top" style="left:8px"><button id="pmExit" class="pm-chip" type="button">✖ Çık</button><button id="pmResetBall" class="pm-chip" type="button">↺ Top</button></div>
+    <div class="pm-top" style="left:50%;transform:translateX(-50%)"><div id="pmHud" class="pm-chip">⏱ 00:00 · ⚽ 0 · 🥅 0</div></div>
+    <div class="pm-top" style="right:8px"><button id="pmEditBtn" class="pm-chip" type="button">🎛️ Tuşları ayarla</button></div>
+    <div id="pmPanel">
+        <div class="row">🎛️ Tuşları sürükle · boyut <input id="pmSize" type="range" min="60" max="160" step="5"> saydamlık <input id="pmOpa" type="range" min="25" max="100" step="5"></div>
+        <div class="row"><span>Renk:</span><span id="pmColors"></span><button id="pmMirror" class="pm-chip" type="button">⇄ Sağ/sol çevir</button><button id="pmDef" class="pm-chip" type="button">Sıfırla</button><button id="pmDone" class="pm-chip" type="button" style="background:#16a34a;border-color:#4ade80">✔ Bitti</button></div>
+    </div>
+    <div id="pmStick" class="pm-btn" data-k="stick" style="border-radius:50%"><div id="pmKnob"></div></div>
+    <div id="pmRotate">📱 Telefonu yan çevir<br>(yatay tut)</div>
+</div>
+
+<script>
+
+/* ===== 🎮 OYNA MODU: tamamen ayrı, tek kişilik antrenman sahası (ana oyunun değişkenlerine dokunmaz) ===== */
+(function () {
+    const $ = id => document.getElementById(id);
+    const root = $('playMode'), cv = $('pmCanvas'), cx = cv.getContext('2d');
+    if (!root || !cv) return;
+    // Saha: ana oyundaki ile aynı ölçüler, yatay çevrilmiş (uzunluk 620, genişlik 360)
+    const LEN = 620, WID = 360, PAD = 18, GW = 124, GD = 16, PR = 16, BR = 9.5, CR = 34, WALL_E = 0.86, CY = WID / 2;
+    const D = Math.PI / 180;
+    const rot = (x, y, a) => { const c = Math.cos(a), s = Math.sin(a); return [x * c - y * s, x * s + y * c]; };
+    const KICKS = {
+        sut:    { ico: '⚽', nm: 'ŞUT',   s: 0,  spd0: 380, spd1: 640, a0: 0,        a1: 0,         T: 0.5,  cd: 0.35, charge: true,  big: 1.2 },
+        falsoL: { ico: '↶',  nm: 'FALSO', s: -1, spd0: 470, spd1: 680, a0: 55 * D,   a1: 140 * D,   T: 0.85, cd: 1.0,  charge: true,  big: 1 },
+        falsoR: { ico: '↷',  nm: 'FALSO', s: 1,  spd0: 470, spd1: 680, a0: 55 * D,   a1: 140 * D,   T: 0.85, cd: 1.0,  charge: true,  big: 1 },
+        roket:  { ico: '🚀', nm: 'ROKET', s: 0,  spd0: 860, spd1: 860, a0: 0,        a1: 0,         T: 0.5,  cd: 4.0,  charge: false, big: 1 },
+        pas:    { ico: '🎯', nm: 'PAS',   s: 0,  spd0: 290, spd1: 290, a0: 0,        a1: 0,         T: 0.5,  cd: 0.4,  charge: false, big: 0.9 },
+        sprint: { ico: '💨', nm: 'SPRINT', big: 1, hold: true }
+    };
+    const ORDER = ['sut', 'falsoL', 'falsoR', 'roket', 'pas', 'sprint'];
+    const DEFPOS = { stick: [0.13, 0.70], sut: [0.90, 0.72], falsoL: [0.78, 0.87], falsoR: [0.79, 0.58], roket: [0.92, 0.45], pas: [0.67, 0.76], sprint: [0.66, 0.52] };
+    const COLORS = ['#ef4444', '#3b82f6', '#22c55e', '#f59e0b', '#a855f7', '#ec4899', '#e2e8f0'];
+    const KEY = 'hx_play_cfg_v1';
+    let cfg = { pos: {}, size: 100, opa: 85, color: '#ef4444' };
+    try { const s = JSON.parse(localStorage.getItem(KEY) || 'null'); if (s && typeof s === 'object') cfg = Object.assign(cfg, s); } catch (e) {}
+    cfg.pos = cfg.pos || {};
+    const save = () => { try { localStorage.setItem(KEY, JSON.stringify(cfg)); } catch (e) {} };
+    const posOf = k => cfg.pos[k] || DEFPOS[k];
+
+    // ---- düğmeleri oluştur ----
+    const els = { stick: $('pmStick') };
+    ORDER.forEach(k => {
+        const K = KICKS[k], b = document.createElement('div');
+        b.className = 'pm-btn'; b.dataset.k = k;
+        b.innerHTML = '<div class="fill"></div><div class="ic">' + K.ico + '</div><div class="nm">' + K.nm + '</div><div class="cd"></div>';
+        root.appendChild(b); els[k] = b;
+    });
+    const colorsBox = $('pmColors');
+    COLORS.forEach(c => { const s = document.createElement('span'); s.className = 'pm-sw'; s.style.background = c; s.style.marginRight = '4px'; s.addEventListener('click', () => { cfg.color = c; save(); }); colorsBox.appendChild(s); });
+
+    let editing = false;
+    function layout() {
+        const W = root.clientWidth || innerWidth, H = root.clientHeight || innerHeight;
+        const sc = cfg.size / 100, base = Math.max(52, Math.min(W, H) * 0.17) * sc;
+        Object.keys(els).forEach(k => {
+            const e = els[k], p = posOf(k), K = KICKS[k];
+            const d = k === 'stick' ? base * 1.9 : base * (K.big || 1);
+            e.style.width = e.style.height = d + 'px';
+            e.style.left = (p[0] * 100) + '%'; e.style.top = (p[1] * 100) + '%';
+            e.style.fontSize = Math.max(11, d * 0.2) + 'px';
+            e.style.opacity = editing ? 1 : cfg.opa / 100;
+            e.classList.toggle('edit', editing);
+        });
+        $('pmSize').value = cfg.size; $('pmOpa').value = cfg.opa;
+        $('pmRotate').style.display = (innerHeight > innerWidth) ? 'flex' : 'none';
+    }
+
+    // ---- oyun durumu ----
+    const P = { x: 150, y: CY, vx: 0, vy: 0, fx: 1, fy: 0, stam: 1, lock: false };
+    const ball = { x: LEN / 2, y: CY, vx: 0, vy: 0, curveRate: 0, curveTimer: 0, trail: [], roll: 0 };
+    const cd = {}, down = {}, st = { x: 0, y: 0 }, keys = {};
+    let t0 = 0, goals = 0, conceded = 0, pause = 0, pauseTxt = '', lastGoalAt = 0, running = false, raf = 0, last = 0, hudT = 0, flash = [];
+    const resetBall = () => { ball.x = LEN / 2; ball.y = CY; ball.vx = ball.vy = 0; ball.curveTimer = 0; ball.trail = []; };
+    const resetPlayer = () => { P.x = 150; P.y = CY; P.vx = P.vy = 0; };
+    function resetAll() { resetBall(); resetPlayer(); goals = conceded = 0; t0 = 0; lastGoalAt = 0; pause = 0; Object.keys(cd).forEach(k => cd[k] = 0); }
+
+    // ---- ses / titreşim ----
+    let ac = null;
+    function beep(f, d, type, g) {
+        try {
+            ac = ac || new (window.AudioContext || window.webkitAudioContext)();
+            const o = ac.createOscillator(), gn = ac.createGain();
+            o.type = type || 'sine'; o.frequency.value = f; gn.gain.value = g || 0.12;
+            gn.gain.exponentialRampToValueAtTime(0.0001, ac.currentTime + d);
+            o.connect(gn); gn.connect(ac.destination); o.start(); o.stop(ac.currentTime + d);
+        } catch (e) {}
+    }
+    const vib = ms => { try { navigator.vibrate && navigator.vibrate(ms); } catch (e) {} };
+    const say = (t, c) => flash.push({ t, c: c || '#fde047', x: P.x, y: P.y - 26, life: 0.8 });
+
+    // ---- vuruş ----
+    function fire(k, held) {
+        const K = KICKS[k];
+        if (!K || K.hold || (cd[k] || 0) > 0) return;
+        const dx = ball.x - P.x, dy = ball.y - P.y, d = Math.hypot(dx, dy) || 1;
+        if (d > PR + BR + 10) { cd[k] = 0.12; return; }              // top menzilde değil: kısa bekleme, vuruş yok
+        const sm = Math.hypot(st.x + (keys.right ? 1 : 0) - (keys.left ? 1 : 0), st.y + (keys.down ? 1 : 0) - (keys.up ? 1 : 0));
+        let ax = st.x + (keys.right ? 1 : 0) - (keys.left ? 1 : 0), ay = st.y + (keys.down ? 1 : 0) - (keys.up ? 1 : 0);
+        let ux, uy;
+        if (sm > 0.25) { ux = ax / sm; uy = ay / sm; } else { ux = dx / d; uy = dy / d; }
+        { // kendi bedeninin içinden vuramaz: hedef oyuncunun arkasındaysa yana kayar
+            const nx = dx / d, ny = dy / d, dot = ux * nx + uy * ny;
+            if (dot < 0.25) {
+                let tx = ux - nx * dot, ty = uy - ny * dot, tl = Math.hypot(tx, ty);
+                if (tl < 0.2) { const sg = Math.random() < 0.5 ? -1 : 1; tx = -ny * sg; ty = nx * sg; tl = 1; }
+                ux = tx / tl + nx * 0.5; uy = ty / tl + ny * 0.5;
+                const ul = Math.hypot(ux, uy) || 1; ux /= ul; uy /= ul;
+            }
+        }
+        const ch = K.charge ? Math.max(0, Math.min(1, held / 0.7)) : 0;
+        const spd = K.spd0 + (K.spd1 - K.spd0) * ch, total = K.a0 + (K.a1 - K.a0) * ch;
+        ball.curveTimer = 0; ball.curveRate = 0;
+        if (K.s && total > 0) { [ux, uy] = rot(ux, uy, -K.s * total / 2); ball.curveRate = K.s * total / K.T; ball.curveTimer = K.T; }
+        ball.vx = ux * spd + P.vx * 0.25; ball.vy = uy * spd + P.vy * 0.25;
+        cd[k] = K.cd;
+        beep(120 + ch * 80, 0.09, 'triangle', 0.18); vib(15);
+        say(K.nm + (ch > 0.8 ? '!!' : ''), K.s ? '#c084fc' : '#fde047');
+    }
+
+    // ---- fizik ----
+    function corners(o, r, bounce) {
+        [[PAD, PAD, 1, 1], [LEN - PAD, PAD, -1, 1], [PAD, WID - PAD, 1, -1], [LEN - PAD, WID - PAD, -1, -1]].forEach(c => {
+            if ((o.x - c[0]) * c[2] >= CR || (o.y - c[1]) * c[3] >= CR) return;
+            const ccx = c[0] + c[2] * CR, ccy = c[1] + c[3] * CR, dx = o.x - ccx, dy = o.y - ccy, d = Math.hypot(dx, dy), mx = CR - r;
+            if (d > mx && d > 0) {
+                const nx = dx / d, ny = dy / d;
+                o.x = ccx + nx * mx; o.y = ccy + ny * mx;
+                if (bounce) { const vn = o.vx * nx + o.vy * ny; if (vn > 0) { o.vx = (o.vx - 2 * vn * nx) * WALL_E; o.vy = (o.vy - 2 * vn * ny) * WALL_E; o.curveTimer = 0; } }
+            }
+        });
+    }
+    function goal(side) {
+        if (pause > 0) return;
+        if (side === 'R') { goals++; pauseTxt = '⚽ GOL!'; } else { conceded++; pauseTxt = '🥅 KENDİ KALEN!'; }
+        pause = 1.6; lastGoalAt = t0; beep(660, 0.25, 'square', 0.1); setTimeout(() => beep(880, 0.3, 'square', 0.1), 140); vib([40, 40, 80]);
+    }
+    function step(dt) {
+        if (!editing) t0 += dt;
+        // oyuncu
+        let mx = st.x + (keys.right ? 1 : 0) - (keys.left ? 1 : 0), my = st.y + (keys.down ? 1 : 0) - (keys.up ? 1 : 0);
+        const mm = Math.hypot(mx, my); if (mm > 1) { mx /= mm; my /= mm; }
+        const wantSprint = (down.sprint || keys.shift) && mm > 0.1;
+        if (P.stam <= 0.02) P.lock = true; else if (P.stam >= 0.3) P.lock = false;
+        const sprinting = wantSprint && !P.lock;
+        P.stam = Math.max(0, Math.min(1, P.stam + (sprinting ? -0.36 : 0.2) * dt));
+        const sp = sprinting ? 205 : 140;
+        P.vx += (mx * sp - P.vx) * Math.min(1, 9 * dt); P.vy += (my * sp - P.vy) * Math.min(1, 9 * dt);
+        if (mm > 0.2) { P.fx = mx / mm; P.fy = my / mm; }
+        P.x += P.vx * dt; P.y += P.vy * dt;
+        P.x = Math.max(PAD + PR, Math.min(LEN - PAD - PR, P.x)); P.y = Math.max(PAD + PR, Math.min(WID - PAD - PR, P.y));
+        corners(P, PR, false);
+        // top
+        if (ball.curveTimer > 0) { const [a, b] = rot(ball.vx, ball.vy, ball.curveRate * dt); ball.vx = a; ball.vy = b; ball.curveTimer -= dt; }
+        ball.x += ball.vx * dt; ball.y += ball.vy * dt;
+        const fr = Math.pow(0.985, dt * 60); ball.vx *= fr; ball.vy *= fr;
+        const spd = Math.hypot(ball.vx, ball.vy);
+        ball.roll += spd * dt / BR;
+        if (spd > 85) ball.trail.push({ x: ball.x, y: ball.y, life: 1, curve: ball.curveTimer > 0 });
+        ball.trail.forEach(t => t.life -= dt * 3.2); ball.trail = ball.trail.filter(t => t.life > 0);
+        // oyuncu-top çarpışması (rigid body)
+        { const dx = ball.x - P.x, dy = ball.y - P.y, dist = Math.hypot(dx, dy), md = PR + BR;
+          if (dist < md && dist > 0) {
+              const nx = dx / dist, ny = dy / dist, ov = md - dist;
+              ball.x += nx * ov; ball.y += ny * ov;
+              const rvx = ball.vx - P.vx * 0.5, rvy = ball.vy - P.vy * 0.5, nv = rvx * nx + rvy * ny;
+              if (nv < 0) { ball.curveTimer = 0; const imp = -(1 + 0.75) * nv; ball.vx += nx * imp + P.vx * 0.5; ball.vy += ny * imp + P.vy * 0.5; }
+          } }
+        // duvarlar + kale ağızları
+        const inMouth = Math.abs(ball.y - CY) <= GW / 2 - BR;
+        const minX = PAD + BR, maxX = LEN - PAD - BR, minY = PAD + BR, maxY = WID - PAD - BR;
+        if (ball.y < minY) { ball.y = minY; ball.vy = Math.abs(ball.vy) * WALL_E; ball.vx *= WALL_E; ball.curveTimer = 0; }
+        if (ball.y > maxY) { ball.y = maxY; ball.vy = -Math.abs(ball.vy) * WALL_E; ball.vx *= WALL_E; ball.curveTimer = 0; }
+        if (inMouth && ball.x < PAD) {                           // sol kale
+            goal('L');
+            if (ball.x < PAD - GD + BR) { ball.x = PAD - GD + BR; ball.vx = Math.abs(ball.vx) * WALL_E; }
+        } else if (ball.x < minX) { ball.x = minX; ball.vx = Math.abs(ball.vx) * WALL_E; ball.vy *= WALL_E; ball.curveTimer = 0; }
+        if (inMouth && ball.x > LEN - PAD) {                     // sağ kale
+            goal('R');
+            if (ball.x > LEN - PAD + GD - BR) { ball.x = LEN - PAD + GD - BR; ball.vx = -Math.abs(ball.vx) * WALL_E; }
+        } else if (ball.x > maxX) { ball.x = maxX; ball.vx = -Math.abs(ball.vx) * WALL_E; ball.vy *= WALL_E; ball.curveTimer = 0; }
+        if (ball.x < PAD || ball.x > LEN - PAD) {                // file içinde yan duvarlar
+            const lim = GW / 2 - BR;
+            if (ball.y < CY - lim) { ball.y = CY - lim; ball.vy = Math.abs(ball.vy) * WALL_E; }
+            if (ball.y > CY + lim) { ball.y = CY + lim; ball.vy = -Math.abs(ball.vy) * WALL_E; }
+        }
+        corners(ball, BR, true);
+        // zamanlayıcılar
+        Object.keys(cd).forEach(k => { if (cd[k] > 0) cd[k] = Math.max(0, cd[k] - dt); });
+        flash.forEach(f => { f.life -= dt; f.y -= 22 * dt; }); flash = flash.filter(f => f.life > 0);
+        if (pause > 0) { pause -= dt; if (pause <= 0) { resetBall(); resetPlayer(); pause = 0; } }
+    }
+
+    // ---- çizim ----
+    function draw() {
+        const W = cv.clientWidth, H = cv.clientHeight, dpr = Math.min(3, window.devicePixelRatio || 1);
+        if (cv.width !== Math.round(W * dpr) || cv.height !== Math.round(H * dpr)) { cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr); }
+        const s = Math.min(W / (LEN + 6), H / (WID + 6)), ox = (W - LEN * s) / 2, oy = (H - WID * s) / 2;
+        const TH = (typeof PITCH_THEMES !== 'undefined' && typeof pitchTheme !== 'undefined' && PITCH_THEMES[pitchTheme]) || { base: '#16a34a', stripe: '#15803d', line: 'rgba(255,255,255,0.9)' };
+        cx.setTransform(dpr, 0, 0, dpr, 0, 0);
+        cx.fillStyle = '#020617'; cx.fillRect(0, 0, W, H);
+        cx.save(); cx.translate(ox, oy); cx.scale(s, s);
+        cx.fillStyle = TH.base; cx.fillRect(0, 0, LEN, WID);
+        cx.fillStyle = TH.stripe;
+        for (let x = PAD; x < LEN - PAD; x += 80) cx.fillRect(x, PAD, 40, WID - PAD * 2);
+        cx.lineWidth = 2.5; cx.strokeStyle = TH.line;
+        cx.beginPath(); cx.moveTo(PAD + CR, PAD);
+        cx.arcTo(LEN - PAD, PAD, LEN - PAD, PAD + CR, CR); cx.arcTo(LEN - PAD, WID - PAD, LEN - PAD - CR, WID - PAD, CR);
+        cx.arcTo(PAD, WID - PAD, PAD, WID - PAD - CR, CR); cx.arcTo(PAD, PAD, PAD + CR, PAD, CR); cx.closePath(); cx.stroke();
+        cx.beginPath(); cx.moveTo(LEN / 2, PAD); cx.lineTo(LEN / 2, WID - PAD); cx.stroke();
+        cx.beginPath(); cx.arc(LEN / 2, CY, 52, 0, Math.PI * 2); cx.stroke();
+        cx.fillStyle = TH.line; cx.beginPath(); cx.arc(LEN / 2, CY, 4.5, 0, Math.PI * 2); cx.fill();
+        cx.strokeRect(PAD, CY - 95, 75, 190); cx.strokeRect(LEN - PAD - 75, CY - 95, 75, 190);
+        cx.fillStyle = 'rgba(56,189,248,0.22)'; cx.fillRect(PAD - GD, CY - GW / 2, GD, GW);
+        cx.lineWidth = 3.5; cx.strokeStyle = '#38bdf8'; cx.strokeRect(PAD - GD, CY - GW / 2, GD, GW);
+        cx.fillStyle = 'rgba(250,204,21,0.22)'; cx.fillRect(LEN - PAD, CY - GW / 2, GD, GW);
+        cx.strokeStyle = '#facc15'; cx.strokeRect(LEN - PAD, CY - GW / 2, GD, GW);
+        // iz
+        ball.trail.forEach(t => { cx.fillStyle = t.curve ? 'rgba(192,132,252,' + (t.life * 0.55) + ')' : 'rgba(255,255,255,' + (t.life * 0.4) + ')'; cx.beginPath(); cx.arc(t.x, t.y, BR * t.life, 0, Math.PI * 2); cx.fill(); });
+        // oyuncu
+        cx.save(); cx.translate(P.x, P.y);
+        const near = Math.hypot(ball.x - P.x, ball.y - P.y) <= PR + BR + 10;
+        if (near) { cx.fillStyle = 'rgba(250,204,21,0.35)'; cx.beginPath(); cx.arc(0, 0, PR + 8, 0, Math.PI * 2); cx.fill(); }
+        if (down.sprint && !P.lock && P.stam > 0.02) { cx.strokeStyle = '#38bdf8'; cx.lineWidth = 2.5; cx.beginPath(); cx.arc(0, 0, PR + 4, 0, Math.PI * 2); cx.stroke(); }
+        cx.fillStyle = cfg.color; cx.beginPath(); cx.arc(0, 0, PR, 0, Math.PI * 2); cx.fill();
+        cx.lineWidth = 3; cx.strokeStyle = TH.outline || '#ffffff'; cx.stroke();
+        cx.fillStyle = 'rgba(255,255,255,0.9)'; cx.beginPath(); cx.arc(P.fx * PR * 0.55, P.fy * PR * 0.55, 3.2, 0, Math.PI * 2); cx.fill();
+        // şarj halkası
+        ['sut', 'falsoL', 'falsoR'].forEach(k => { if (down[k] && !editing) { const ch = Math.min(1, (performance.now() - down[k]) / 700); cx.strokeStyle = k === 'sut' ? '#fde047' : '#c084fc'; cx.lineWidth = 3; cx.beginPath(); cx.arc(0, 0, PR + 11, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * ch); cx.stroke(); } });
+        // dayanıklılık çubuğu
+        cx.fillStyle = 'rgba(2,6,23,0.7)'; cx.fillRect(-14, PR + 5, 28, 4);
+        cx.fillStyle = P.lock ? '#f87171' : '#38bdf8'; cx.fillRect(-14, PR + 5, 28 * P.stam, 4);
+        cx.restore();
+        // top
+        cx.save(); cx.translate(ball.x, ball.y);
+        if (ball.curveTimer > 0) { const a0 = performance.now() / 70; cx.strokeStyle = '#c084fc'; cx.lineWidth = 2.5; cx.beginPath(); cx.arc(0, 0, BR + 5, a0, a0 + Math.PI * 1.3); cx.stroke(); }
+        cx.fillStyle = (typeof ballColor !== 'undefined' ? ballColor : '#ffffff'); cx.beginPath(); cx.arc(0, 0, BR, 0, Math.PI * 2); cx.fill();
+        const edge = (typeof ballEdge !== 'undefined' ? ballEdge : '#0f172a');
+        cx.lineWidth = 1.6; cx.strokeStyle = edge; cx.stroke();
+        cx.fillStyle = edge; for (let i = 0; i < 3; i++) { const a = ball.roll + i * 2.094; cx.beginPath(); cx.arc(Math.cos(a) * BR * 0.5, Math.sin(a) * BR * 0.5, 1.8, 0, Math.PI * 2); cx.fill(); }
+        cx.restore();
+        flash.forEach(f => { cx.globalAlpha = Math.max(0, f.life / 0.8); cx.fillStyle = f.c; cx.font = '900 12px Inter, sans-serif'; cx.textAlign = 'center'; cx.lineWidth = 3; cx.strokeStyle = 'rgba(2,6,23,0.9)'; cx.strokeText(f.t, f.x, f.y); cx.fillText(f.t, f.x, f.y); cx.globalAlpha = 1; });
+        if (pause > 0) { cx.fillStyle = 'rgba(2,6,23,0.45)'; cx.fillRect(0, CY - 40, LEN, 80); cx.fillStyle = '#fde047'; cx.font = '900 40px Inter, sans-serif'; cx.textAlign = 'center'; cx.textBaseline = 'middle'; cx.fillText(pauseTxt, LEN / 2, CY); }
+        cx.restore();
+    }
+    function updateUi() {
+        ORDER.forEach(k => {
+            const e = els[k], K = KICKS[k], c = e.querySelector('.cd'), f = e.querySelector('.fill');
+            const c0 = cd[k] || 0;
+            c.style.display = (c0 > 0.15 && !editing) ? 'flex' : 'none';
+            if (c0 > 0.15) c.textContent = c0 >= 1 ? Math.ceil(c0) : c0.toFixed(1);
+            if (K.charge && down[k] && !editing) { const ch = Math.min(1, (performance.now() - down[k]) / 700); f.style.background = 'conic-gradient(rgba(253,224,71,0.55) ' + (ch * 360) + 'deg, transparent 0)'; } else if (k === 'sprint') { f.style.background = 'conic-gradient(' + (P.lock ? 'rgba(248,113,113,0.5)' : 'rgba(56,189,248,0.5)') + ' ' + (P.stam * 360) + 'deg, transparent 0)'; } else f.style.background = 'none';
+            e.classList.toggle('down', !!down[k] && !editing);
+        });
+        const m = Math.floor(t0 / 60), sc = Math.floor(t0 % 60);
+        $('pmHud').textContent = '⏱ ' + String(m).padStart(2, '0') + ':' + String(sc).padStart(2, '0') + ' · ⚽ ' + goals + ' · 🥅 ' + conceded + (lastGoalAt > 0 ? ' · son gol ' + Math.round(t0 - lastGoalAt) + ' sn önce' : '');
+    }
+    function loop(now) {
+        if (!running) return;
+        const dt = Math.min(0.033, (now - last) / 1000 || 0.016); last = now;
+        if (!editing) { step(dt / 2); step(dt / 2); }
+        draw();
+        hudT += dt; if (hudT > 0.08) { hudT = 0; updateUi(); }
+        raf = requestAnimationFrame(loop);
+    }
+
+    // ---- girişler (dokunmatik + klavye) ----
+    let stickId = null;
+    function stickMove(e) {
+        const r = els.stick.getBoundingClientRect(), R = r.width / 2;
+        let dx = e.clientX - (r.left + R), dy = e.clientY - (r.top + R), m = Math.hypot(dx, dy);
+        const lim = R * 0.85; if (m > lim) { dx = dx / m * lim; dy = dy / m * lim; m = lim; }
+        const n = m / lim; st.x = n < 0.12 ? 0 : dx / lim; st.y = n < 0.12 ? 0 : dy / lim;
+        $('pmKnob').style.transform = 'translate(calc(-50% + ' + dx + 'px), calc(-50% + ' + dy + 'px))';
+    }
+    function stickEnd() { st.x = st.y = 0; stickId = null; $('pmKnob').style.transform = 'translate(-50%,-50%)'; }
+    let drag = null;
+    Object.keys(els).forEach(k => {
+        const e = els[k];
+        e.addEventListener('pointerdown', ev => {
+            ev.preventDefault();
+            try { e.setPointerCapture(ev.pointerId); } catch (x) {}
+            if (editing) { const r = e.getBoundingClientRect(); drag = { k, id: ev.pointerId }; return; }
+            if (k === 'stick') { stickId = ev.pointerId; stickMove(ev); return; }
+            const K = KICKS[k];
+            down[k] = performance.now();
+            if (!K.charge && !K.hold) fire(k, 0);
+        });
+        e.addEventListener('pointermove', ev => {
+            if (editing) { if (drag && drag.k === k && drag.id === ev.pointerId) { const W = root.clientWidth, H = root.clientHeight; cfg.pos[k] = [Math.max(0.04, Math.min(0.96, ev.clientX / W)), Math.max(0.06, Math.min(0.94, ev.clientY / H))]; layout(); } return; }
+            if (k === 'stick' && stickId === ev.pointerId) stickMove(ev);
+        });
+        const up = ev => {
+            if (editing) { if (drag) { drag = null; save(); } return; }
+            if (k === 'stick') { if (stickId === ev.pointerId) stickEnd(); return; }
+            const K = KICKS[k], t = down[k];
+            if (t && K.charge) fire(k, (performance.now() - t) / 1000);
+            down[k] = 0;
+        };
+        e.addEventListener('pointerup', up); e.addEventListener('pointercancel', up); e.addEventListener('lostpointercapture', ev => { if (!editing && k !== 'stick' && down[k] && !KICKS[k].charge) down[k] = 0; });
+        e.addEventListener('contextmenu', ev => ev.preventDefault());
+    });
+    const KEYMAP = { ArrowLeft: 'left', a: 'left', A: 'left', ArrowRight: 'right', d: 'right', D: 'right', ArrowUp: 'up', w: 'up', W: 'up', ArrowDown: 'down', s: 'down', S: 'down', Shift: 'shift' };
+    const KICKKEY = { ' ': 'sut', q: 'falsoL', Q: 'falsoL', e: 'falsoR', E: 'falsoR', r: 'roket', R: 'roket', f: 'pas', F: 'pas' };
+    function onKey(ev, isDown) {
+        if (!running) return;
+        if (ev.key === 'Escape' && isDown) { close(); return; }
+        if (ev.key === 't' || ev.key === 'T') { if (isDown) { resetBall(); } return; }
+        if (KEYMAP[ev.key]) { keys[KEYMAP[ev.key]] = isDown; if (KEYMAP[ev.key] === 'shift') down.sprint = isDown ? 1 : 0; ev.preventDefault(); return; }
+        const k = KICKKEY[ev.key];
+        if (k) {
+            ev.preventDefault(); if (ev.repeat) return;
+            const K = KICKS[k];
+            if (isDown) { down[k] = performance.now(); if (!K.charge) fire(k, 0); }
+            else { if (K.charge && down[k]) fire(k, (performance.now() - down[k]) / 1000); down[k] = 0; }
+        }
+    }
+    addEventListener('keydown', e => onKey(e, true)); addEventListener('keyup', e => onKey(e, false));
+    addEventListener('resize', () => { if (running) layout(); });
+    addEventListener('orientationchange', () => { if (running) setTimeout(layout, 250); });
+
+    // ---- ayar paneli ----
+    function setEdit(on) {
+        editing = on; $('pmPanel').style.display = on ? 'block' : 'none'; $('pmEditBtn').style.display = on ? 'none' : '';
+        Object.keys(down).forEach(k => down[k] = 0); stickEnd(); layout();
+    }
+    $('pmEditBtn').addEventListener('click', () => setEdit(true));
+    $('pmDone').addEventListener('click', () => { save(); setEdit(false); });
+    $('pmDef').addEventListener('click', () => { cfg.pos = {}; cfg.size = 100; cfg.opa = 85; save(); layout(); });
+    $('pmMirror').addEventListener('click', () => { Object.keys(DEFPOS).forEach(k => { const p = posOf(k); cfg.pos[k] = [1 - p[0], p[1]]; }); save(); layout(); });
+    $('pmSize').addEventListener('input', e => { cfg.size = +e.target.value; layout(); save(); });
+    $('pmOpa').addEventListener('input', e => { cfg.opa = +e.target.value; layout(); save(); });
+    $('pmResetBall').addEventListener('click', () => { resetBall(); });
+
+    // ---- aç / kapat ----
+    function open() {
+        root.style.display = 'block'; document.body.style.overflow = 'hidden';
+        try { (document.documentElement.requestFullscreen || document.documentElement.webkitRequestFullscreen).call(document.documentElement); } catch (e) {}
+        try { screen.orientation && screen.orientation.lock && screen.orientation.lock('landscape').catch(() => {}); } catch (e) {}
+        resetAll(); editing = false; running = true; layout(); last = performance.now(); raf = requestAnimationFrame(loop);
+        setTimeout(layout, 300);
+    }
+    function close() {
+        running = false; cancelAnimationFrame(raf); root.style.display = 'none'; document.body.style.overflow = '';
+        Object.keys(down).forEach(k => down[k] = 0); stickEnd(); setEdit(false);
+        try { screen.orientation && screen.orientation.unlock && screen.orientation.unlock(); } catch (e) {}
+        try { if (document.fullscreenElement) document.exitFullscreen(); } catch (e) {}
+    }
+    $('pmExit').addEventListener('click', close);
+    const ob = $('playModeBtn'); if (ob) ob.addEventListener('click', open);
+})();
+
+</script>
 </body>
 </html>
