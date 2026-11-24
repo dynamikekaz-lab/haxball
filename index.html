@@ -328,7 +328,7 @@
             </button>
         </div>
         <div class="pt-3">
-            <button id="playModeBtn" type="button" class="w-full py-2.5 rounded-xl bg-slate-800/80 border border-slate-700 hover:bg-slate-700 text-slate-200 font-bold text-xs">🎮 OYNA MODU · tek başına sahada oyna (yatay)</button>
+            <button id="playModeBtn" type="button" class="w-full py-2.5 rounded-xl bg-slate-800/80 border border-slate-700 hover:bg-slate-700 text-slate-200 font-bold text-xs">🎮 OYNA MODU · tek başına ya da botlarla oyna (yatay)</button>
         </div>
     </div>
 
@@ -6432,10 +6432,25 @@
 #playMode #pmPanel input[type=range]{width:110px}
 #playMode #pmRotate{position:absolute;inset:0;background:rgba(2,6,23,.94);color:#fde047;display:none;align-items:center;justify-content:center;font-size:18px;font-weight:900;text-align:center;z-index:20;padding:20px}
 #playMode .pm-sw{width:22px;height:22px;border-radius:50%;border:2px solid #fff;display:inline-block}
+#playMode #pmSetup{position:absolute;inset:0;z-index:15;background:rgba(2,6,23,.88);display:none;align-items:center;justify-content:center;padding:8px;overflow:auto}
+#playMode #pmSetup .card{background:#0f172a;border:1px solid #334155;border-radius:18px;padding:12px 16px;width:min(540px,96vw);max-height:96vh;overflow:auto;color:#e2e8f0}
+#playMode #pmSetup h3{margin:0 0 6px;font-size:15px;font-weight:900;text-align:center;color:#fde047}
+#playMode #pmSetup .srow{display:flex;align-items:center;justify-content:space-between;gap:8px;margin:7px 0;font-size:13px;font-weight:800}
+#playMode #pmSetup .srow small{display:block;font-size:10px;font-weight:600;color:#94a3b8}
+#playMode #pmSetup .stp{display:flex;align-items:center;gap:8px}
+#playMode #pmSetup .stp button{width:40px;height:40px;border-radius:12px;background:#1e293b;border:1px solid #475569;color:#fff;font-size:22px;font-weight:900;touch-action:manipulation}
+#playMode #pmSetup .stp b{min-width:30px;text-align:center;font-size:22px}
+#playMode #pmSetup .chips{display:flex;gap:6px;flex-wrap:wrap;justify-content:center;margin:6px 0}
+#playMode #pmSetup .chip{padding:7px 11px;border-radius:10px;background:#1e293b;border:1px solid #475569;color:#e2e8f0;font-size:12px;font-weight:800;touch-action:manipulation}
+#playMode #pmSetup .chip.on{background:#16a34a;border-color:#4ade80;color:#fff}
+#playMode #pmSetup .sum{text-align:center;font-size:12px;font-weight:700;color:#94a3b8;margin:6px 0 8px}
+#playMode #pmSetup .go{display:flex;gap:8px;justify-content:center}
+#playMode #pmSetup .go button{padding:10px 18px;border-radius:12px;font-size:14px;font-weight:900;border:1px solid #475569;background:#1e293b;color:#e2e8f0;touch-action:manipulation}
+#playMode #pmSetup .go button.ok{background:#16a34a;border-color:#4ade80;color:#fff;flex:1}
 </style>
 <div id="playMode">
     <canvas id="pmCanvas"></canvas>
-    <div class="pm-top" style="left:8px"><button id="pmExit" class="pm-chip" type="button">✖ Çık</button><button id="pmResetBall" class="pm-chip" type="button">↺ Top</button></div>
+    <div class="pm-top" style="left:8px"><button id="pmExit" class="pm-chip" type="button">✖ Çık</button><button id="pmResetBall" class="pm-chip" type="button">↺ Top</button><button id="pmTeams" class="pm-chip" type="button">👥 Takımlar</button></div>
     <div class="pm-top" style="left:50%;transform:translateX(-50%)"><div id="pmHud" class="pm-chip">⏱ 00:00 · ⚽ 0 · 🥅 0</div></div>
     <div class="pm-top" style="right:8px"><button id="pmEditBtn" class="pm-chip" type="button">🎛️ Tuşları ayarla</button></div>
     <div id="pmPanel">
@@ -6443,6 +6458,28 @@
         <div class="row"><span>Renk:</span><span id="pmColors"></span><button id="pmMirror" class="pm-chip" type="button">⇄ Sağ/sol çevir</button><button id="pmDef" class="pm-chip" type="button">Sıfırla</button><button id="pmDone" class="pm-chip" type="button" style="background:#16a34a;border-color:#4ade80">✔ Bitti</button></div>
     </div>
     <div id="pmStick" class="pm-btn" data-k="stick" style="border-radius:50%"><div id="pmKnob"></div></div>
+    <div id="pmSetup">
+        <div class="card">
+            <h3>🎮 Oyna Modu · Takımları Seç</h3>
+            <div class="srow"><div>Senin takımın<small>sen dahil (diğerleri bot)</small></div><div class="stp"><button id="pmAm" type="button">−</button><b id="pmNA">1</b><button id="pmAp" type="button">+</button></div></div>
+            <div class="srow"><div>Rakip takım<small>hepsi bot · 0 = rakipsiz</small></div><div class="stp"><button id="pmBm" type="button">−</button><b id="pmNB">0</b><button id="pmBp" type="button">+</button></div></div>
+            <div class="chips" id="pmPresets">
+                <button class="chip" type="button" data-p="1,0">Tek başıma</button>
+                <button class="chip" type="button" data-p="1,1">1v1</button>
+                <button class="chip" type="button" data-p="2,2">2v2</button>
+                <button class="chip" type="button" data-p="3,3">3v3</button>
+                <button class="chip" type="button" data-p="4,4">4v4</button>
+            </div>
+            <div class="chips" id="pmDiffs">
+                <span style="font-size:12px;font-weight:800;align-self:center">Bot seviyesi:</span>
+                <button class="chip" type="button" data-d="0">Kolay</button>
+                <button class="chip" type="button" data-d="1">Orta</button>
+                <button class="chip" type="button" data-d="2">Zor</button>
+            </div>
+            <div class="sum" id="pmSum"></div>
+            <div class="go"><button id="pmNo" type="button">İptal</button><button id="pmGo" class="ok" type="button">▶ BAŞLA</button></div>
+        </div>
+    </div>
     <div id="pmRotate">📱 Telefonu yan çevir<br>(yatay tut)</div>
 </div>
 
@@ -6469,9 +6506,10 @@
     const DEFPOS = { stick: [0.13, 0.70], sut: [0.90, 0.72], falsoL: [0.78, 0.87], falsoR: [0.79, 0.58], roket: [0.92, 0.45], pas: [0.67, 0.76], sprint: [0.66, 0.52] };
     const COLORS = ['#ef4444', '#3b82f6', '#22c55e', '#f59e0b', '#a855f7', '#ec4899', '#e2e8f0'];
     const KEY = 'hx_play_cfg_v1';
-    let cfg = { pos: {}, size: 100, opa: 85, color: '#ef4444' };
+    let cfg = { pos: {}, size: 100, opa: 85, color: '#ef4444', nA: 1, nB: 0, diff: 1 };
     try { const s = JSON.parse(localStorage.getItem(KEY) || 'null'); if (s && typeof s === 'object') cfg = Object.assign(cfg, s); } catch (e) {}
     cfg.pos = cfg.pos || {};
+    cfg.nA = Math.max(1, Math.min(8, +cfg.nA || 1)); cfg.nB = Math.max(0, Math.min(8, +cfg.nB || 0)); cfg.diff = [0, 1, 2].includes(+cfg.diff) ? +cfg.diff : 1;
     const save = () => { try { localStorage.setItem(KEY, JSON.stringify(cfg)); } catch (e) {} };
     const posOf = k => cfg.pos[k] || DEFPOS[k];
 
@@ -6509,7 +6547,120 @@
     const cd = {}, down = {}, st = { x: 0, y: 0 }, keys = {};
     let t0 = 0, goals = 0, conceded = 0, pause = 0, pauseTxt = '', lastGoalAt = 0, running = false, raf = 0, last = 0, hudT = 0, flash = [];
     const resetBall = () => { ball.x = LEN / 2; ball.y = CY; ball.vx = ball.vy = 0; ball.curveTimer = 0; ball.trail = []; };
-    const resetPlayer = () => { P.x = 150; P.y = CY; P.vx = P.vy = 0; };
+    // ---- botlar ----
+    let bots = [], all = [P], setupOpen = false, setupFrom = 'open', roleT = 0;
+    const SLOTS = [[150, CY], [70, CY], [205, CY - 90], [205, CY + 90], [255, CY - 40], [255, CY + 40], [110, CY - 120], [110, CY + 120]];
+    const DIFF = [
+        { sp: 100, err: 0.30, kcd: 1.0, s0: 300, s1: 430, think: 0.30, lead: 0 },
+        { sp: 125, err: 0.16, kcd: 0.7, s0: 380, s1: 540, think: 0.18, lead: 0.12 },
+        { sp: 150, err: 0.06, kcd: 0.5, s0: 460, s1: 660, think: 0.10, lead: 0.2 }
+    ];
+    const clampN = (v, a, c) => Math.max(a, Math.min(c, v));
+    function oppColor() {
+        const h = c => [1, 3, 5].map(i => parseInt(c.substr(i, 2), 16));
+        const a = h(cfg.color); let best = '#3b82f6', bd = -1;
+        COLORS.forEach(c => { const q = h(c), d = (a[0] - q[0]) ** 2 + (a[1] - q[1]) ** 2 + (a[2] - q[2]) ** 2; if (d > bd) { bd = d; best = c; } });
+        return best;
+    }
+    function buildTeams() {
+        bots = [];
+        const mk = (team, slot) => ({ team, slot, x: 0, y: 0, vx: 0, vy: 0, fx: team === 'A' ? 1 : -1, fy: 0, role: 'support', ri: 0, thinkT: Math.random() * 0.2, tx: 0, ty: 0, kcd: 0, aimY: CY });
+        for (let i = 1; i < cfg.nA; i++) bots.push(mk('A', i));
+        for (let i = 0; i < cfg.nB; i++) bots.push(mk('B', i));
+        all = [P].concat(bots);
+    }
+    const resetPlayer = () => {
+        P.x = SLOTS[0][0]; P.y = SLOTS[0][1]; P.vx = P.vy = 0;
+        bots.forEach(b => { const sl = SLOTS[b.slot]; b.x = b.team === 'A' ? sl[0] : LEN - sl[0]; b.y = sl[1]; b.vx = b.vy = 0; b.kcd = 0; b.fx = b.team === 'A' ? 1 : -1; b.fy = 0; });
+    };
+    function teamRoles(team) {
+        const list = bots.filter(b => b.team === team);
+        if (team === 'A') list.push(P);
+        list.forEach(m => { m._d = Math.hypot(ball.x - m.x, ball.y - m.y); });
+        list.sort((a, b) => a._d - b._d);
+        const n = list.length, nDef = n >= 6 ? 2 : (n >= 2 ? 1 : 0);
+        let sup = 0, df = 0;
+        list.forEach((m, i) => {
+            if (m === P) return;
+            if (i === 0) m.role = 'chase';
+            else if (i >= n - nDef) { m.role = 'defend'; m.ri = df++; }
+            else { m.role = 'support'; m.ri = sup++; }
+        });
+    }
+    function botThink(b, D) {
+        const dir = b.team === 'A' ? 1 : -1, ogx = b.team === 'A' ? PAD : LEN - PAD, tgx = b.team === 'A' ? LEN - PAD : PAD;
+        const bx = ball.x + ball.vx * D.lead, by = ball.y + ball.vy * D.lead;
+        const role = Math.hypot(ball.x - b.x, ball.y - b.y) < 46 ? 'chase' : b.role;
+        if (role === 'chase') {
+            let gx = tgx - bx, gy = b.aimY - by; const gl = Math.hypot(gx, gy) || 1; gx /= gl; gy /= gl;
+            const back = PR + BR + 3, rel = (b.x - bx) * gx + (b.y - by) * gy, px = -gy, py = gx, lat = (b.x - bx) * px + (b.y - by) * py;
+            const inF = (x, y) => x > PAD + PR && x < LEN - PAD - PR && y > PAD + PR && y < WID - PAD - PR;
+            let done = false;
+            if (!(b.free > 0)) {
+                if (rel > -back * 0.8) {                              // top ile kale arasındayız: topun yanından dolan
+                    for (const sd of [lat >= 0 ? 1 : -1, lat >= 0 ? -1 : 1]) {
+                        const x = bx + px * sd * (back + 14) - gx * back * 0.5, y = by + py * sd * (back + 14) - gy * back * 0.5;
+                        if (inF(x, y)) { b.tx = x; b.ty = y; done = true; break; }
+                    }
+                } else if (Math.abs(lat) > PR * 0.9) {                // arkadayız ama hizasız: önce vuruş çizgisine gir
+                    const x = bx - gx * (back + 8), y = by - gy * (back + 8);
+                    if (inF(x, y)) { b.tx = x; b.ty = y; done = true; }
+                } else { b.tx = bx - gx * 2; b.ty = by - gy * 2; done = true; }
+                if (!done) b.free = 0.8;                              // duvar dibinde: doğrudan topa git
+            }
+            if (!done) { b.tx = bx; b.ty = by; }
+        } else if (role === 'defend') {
+            b.tx = ogx + dir * (75 + 55 * b.ri);
+            b.ty = clampN(CY + (ball.y - CY) * 0.5 + (b.ri === 0 ? 0 : (b.ri % 2 ? 40 : -40)), CY - 100, CY + 100);
+        } else {
+            b.tx = clampN(ball.x + dir * (70 + 28 * b.ri), PAD + 40, LEN - PAD - 40);
+            b.ty = clampN(CY + (b.ri % 2 === 0 ? 1 : -1) * (75 + 22 * Math.floor(b.ri / 2)) * 0.8 + (ball.y - CY) * 0.35, PAD + 25, WID - PAD - 25);
+        }
+        b.tx = clampN(b.tx, PAD + PR, LEN - PAD - PR); b.ty = clampN(b.ty, PAD + PR, WID - PAD - PR);
+    }
+    function botKick(b, D, dB) {
+        const dir = b.team === 'A' ? 1 : -1, tgx = b.team === 'A' ? LEN - PAD : PAD;
+        let ax = tgx - ball.x, ay = b.aimY - ball.y; const al = Math.hypot(ax, ay) || 1; ax /= al; ay /= al;
+        const nx = (ball.x - b.x) / dB, ny = (ball.y - b.y) / dB;
+        const free = b.free > 0;
+        if (nx * ax + ny * ay < 0.5) {
+            if (!free) return;                                        // top önümüzde değil
+            ax = nx * 0.65 + ax * 0.35; ay = ny * 0.65 + ay * 0.35;   // sıkışmışsak topu bulunduğu yerden uzaklaştır
+            const l2 = Math.hypot(ax, ay) || 1; ax /= l2; ay /= l2;
+        }
+        const ownThird = dir > 0 ? ball.x < LEN * 0.34 : ball.x > LEN * 0.66;
+        if (al > 300 && !ownThird && !free) return;                   // uzaksa sür, vurma
+        [ax, ay] = rot(ax, ay, (Math.random() * 2 - 1) * D.err);
+        const pw = Math.max(0.35, Math.min(1, al / 320)), spd = D.s0 + (D.s1 - D.s0) * pw * (0.6 + Math.random() * 0.4);
+        ball.curveTimer = 0; ball.curveRate = 0;
+        ball.vx = ax * spd + b.vx * 0.25; ball.vy = ay * spd + b.vy * 0.25;
+        b.kcd = D.kcd; b.aimY = CY + (Math.random() * 2 - 1) * (GW / 2 - 26);
+        beep(130, 0.06, 'triangle', 0.05);
+    }
+    function botsStep(dt) {
+        if (!bots.length) return;
+        const D = DIFF[cfg.diff] || DIFF[1];
+        roleT -= dt; if (roleT <= 0) { roleT = 0.2; teamRoles('A'); teamRoles('B'); }
+        bots.forEach(b => {
+            b.kcd = Math.max(0, b.kcd - dt); b.free = Math.max(0, (b.free || 0) - dt);
+            if (pause > 0) { b.vx *= 0.8; b.vy *= 0.8; return; }
+            b.thinkT -= dt; if (b.thinkT <= 0) { b.thinkT = D.think * (0.7 + Math.random() * 0.6); botThink(b, D); }
+            const dx = b.tx - b.x, dy = b.ty - b.y, dl = Math.hypot(dx, dy), ar = Math.min(1, dl / 26), sp = D.sp * (b.role === 'chase' ? 1.12 : 1);
+            const mx = dl > 1 ? dx / dl * ar : 0, my = dl > 1 ? dy / dl * ar : 0;
+            b.vx += (mx * sp - b.vx) * Math.min(1, 8 * dt); b.vy += (my * sp - b.vy) * Math.min(1, 8 * dt);
+            if (Math.hypot(b.vx, b.vy) > 20) { const vl = Math.hypot(b.vx, b.vy); b.fx = b.vx / vl; b.fy = b.vy / vl; }
+            b.x += b.vx * dt; b.y += b.vy * dt;
+            b.x = clampN(b.x, PAD + PR, LEN - PAD - PR); b.y = clampN(b.y, PAD + PR, WID - PAD - PR);
+            corners(b, PR, false);
+            const dB = Math.hypot(ball.x - b.x, ball.y - b.y);
+            if (dB < 60 && Math.hypot(b.vx, b.vy) < 22 && b.role === 'chase') { b.stuckT = (b.stuckT || 0) + dt; if (b.stuckT > 0.6) { b.free = 0.8; b.stuckT = 0; } } else b.stuckT = 0;
+            if (b.kcd <= 0 && dB <= PR + BR + 8) botKick(b, D, dB);
+        });
+        for (let i = 0; i < all.length; i++) for (let j = i + 1; j < all.length; j++) {   // oyuncular birbirinin içinden geçmesin
+            const a = all[i], c = all[j], dx = c.x - a.x, dy = c.y - a.y, d = Math.hypot(dx, dy), md = PR * 2;
+            if (d < md && d > 0.001) { const nx = dx / d, ny = dy / d, ov = (md - d) / 2; a.x -= nx * ov; a.y -= ny * ov; c.x += nx * ov; c.y += ny * ov; }
+        }
+    }
     function resetAll() { resetBall(); resetPlayer(); goals = conceded = 0; t0 = 0; lastGoalAt = 0; pause = 0; Object.keys(cd).forEach(k => cd[k] = 0); }
 
     // ---- ses / titreşim ----
@@ -6569,7 +6720,7 @@
     }
     function goal(side) {
         if (pause > 0) return;
-        if (side === 'R') { goals++; pauseTxt = '⚽ GOL!'; } else { conceded++; pauseTxt = '🥅 KENDİ KALEN!'; }
+        if (side === 'R') { goals++; pauseTxt = '⚽ GOL!'; } else { conceded++; pauseTxt = bots.some(b => b.team === 'B') ? '🥅 GOL YEDİN!' : '🥅 KENDİ KALEN!'; }
         pause = 1.6; lastGoalAt = t0; beep(660, 0.25, 'square', 0.1); setTimeout(() => beep(880, 0.3, 'square', 0.1), 140); vib([40, 40, 80]);
     }
     function step(dt) {
@@ -6587,6 +6738,7 @@
         P.x += P.vx * dt; P.y += P.vy * dt;
         P.x = Math.max(PAD + PR, Math.min(LEN - PAD - PR, P.x)); P.y = Math.max(PAD + PR, Math.min(WID - PAD - PR, P.y));
         corners(P, PR, false);
+        botsStep(dt);
         // top
         if (ball.curveTimer > 0) { const [a, b] = rot(ball.vx, ball.vy, ball.curveRate * dt); ball.vx = a; ball.vy = b; ball.curveTimer -= dt; }
         ball.x += ball.vx * dt; ball.y += ball.vy * dt;
@@ -6596,13 +6748,13 @@
         if (spd > 85) ball.trail.push({ x: ball.x, y: ball.y, life: 1, curve: ball.curveTimer > 0 });
         ball.trail.forEach(t => t.life -= dt * 3.2); ball.trail = ball.trail.filter(t => t.life > 0);
         // oyuncu-top çarpışması (rigid body)
-        { const dx = ball.x - P.x, dy = ball.y - P.y, dist = Math.hypot(dx, dy), md = PR + BR;
+        all.forEach(p => { const dx = ball.x - p.x, dy = ball.y - p.y, dist = Math.hypot(dx, dy), md = PR + BR;
           if (dist < md && dist > 0) {
               const nx = dx / dist, ny = dy / dist, ov = md - dist;
               ball.x += nx * ov; ball.y += ny * ov;
-              const rvx = ball.vx - P.vx * 0.5, rvy = ball.vy - P.vy * 0.5, nv = rvx * nx + rvy * ny;
-              if (nv < 0) { ball.curveTimer = 0; const imp = -(1 + 0.75) * nv; ball.vx += nx * imp + P.vx * 0.5; ball.vy += ny * imp + P.vy * 0.5; }
-          } }
+              const rvx = ball.vx - p.vx * 0.5, rvy = ball.vy - p.vy * 0.5, nv = rvx * nx + rvy * ny;
+              if (nv < 0) { ball.curveTimer = 0; const imp = -(1 + 0.75) * nv; ball.vx += nx * imp + p.vx * 0.5; ball.vy += ny * imp + p.vy * 0.5; }
+          } });
         // duvarlar + kale ağızları
         const inMouth = Math.abs(ball.y - CY) <= GW / 2 - BR;
         const minX = PAD + BR, maxX = LEN - PAD - BR, minY = PAD + BR, maxY = WID - PAD - BR;
@@ -6611,11 +6763,11 @@
         if (inMouth && ball.x < PAD) {                           // sol kale
             goal('L');
             if (ball.x < PAD - GD + BR) { ball.x = PAD - GD + BR; ball.vx = Math.abs(ball.vx) * WALL_E; }
-        } else if (ball.x < minX) { ball.x = minX; ball.vx = Math.abs(ball.vx) * WALL_E; ball.vy *= WALL_E; ball.curveTimer = 0; }
+        } else if (ball.x < minX && !inMouth) { ball.x = minX; ball.vx = Math.abs(ball.vx) * WALL_E; ball.vy *= WALL_E; ball.curveTimer = 0; }
         if (inMouth && ball.x > LEN - PAD) {                     // sağ kale
             goal('R');
             if (ball.x > LEN - PAD + GD - BR) { ball.x = LEN - PAD + GD - BR; ball.vx = -Math.abs(ball.vx) * WALL_E; }
-        } else if (ball.x > maxX) { ball.x = maxX; ball.vx = -Math.abs(ball.vx) * WALL_E; ball.vy *= WALL_E; ball.curveTimer = 0; }
+        } else if (ball.x > maxX && !inMouth) { ball.x = maxX; ball.vx = -Math.abs(ball.vx) * WALL_E; ball.vy *= WALL_E; ball.curveTimer = 0; }
         if (ball.x < PAD || ball.x > LEN - PAD) {                // file içinde yan duvarlar
             const lim = GW / 2 - BR;
             if (ball.y < CY - lim) { ball.y = CY - lim; ball.vy = Math.abs(ball.vy) * WALL_E; }
@@ -6654,8 +6806,20 @@
         cx.strokeStyle = '#facc15'; cx.strokeRect(LEN - PAD, CY - GW / 2, GD, GW);
         // iz
         ball.trail.forEach(t => { cx.fillStyle = t.curve ? 'rgba(192,132,252,' + (t.life * 0.55) + ')' : 'rgba(255,255,255,' + (t.life * 0.4) + ')'; cx.beginPath(); cx.arc(t.x, t.y, BR * t.life, 0, Math.PI * 2); cx.fill(); });
+        // botlar
+        if (bots.length) {
+            const cB = oppColor();
+            bots.forEach(b => {
+                cx.save(); cx.translate(b.x, b.y);
+                cx.fillStyle = b.team === 'A' ? cfg.color : cB; cx.beginPath(); cx.arc(0, 0, PR, 0, Math.PI * 2); cx.fill();
+                cx.lineWidth = 3; cx.strokeStyle = TH.outline || '#ffffff'; cx.stroke();
+                cx.fillStyle = 'rgba(255,255,255,0.9)'; cx.beginPath(); cx.arc(b.fx * PR * 0.55, b.fy * PR * 0.55, 3.2, 0, Math.PI * 2); cx.fill();
+                cx.restore();
+            });
+        }
         // oyuncu
         cx.save(); cx.translate(P.x, P.y);
+        if (bots.length) { cx.fillStyle = '#fde047'; cx.strokeStyle = 'rgba(2,6,23,0.9)'; cx.lineWidth = 1.5; cx.beginPath(); cx.moveTo(0, -PR - 7); cx.lineTo(-6, -PR - 16); cx.lineTo(6, -PR - 16); cx.closePath(); cx.fill(); cx.stroke(); }
         const near = Math.hypot(ball.x - P.x, ball.y - P.y) <= PR + BR + 10;
         if (near) { cx.fillStyle = 'rgba(250,204,21,0.35)'; cx.beginPath(); cx.arc(0, 0, PR + 8, 0, Math.PI * 2); cx.fill(); }
         if (down.sprint && !P.lock && P.stam > 0.02) { cx.strokeStyle = '#38bdf8'; cx.lineWidth = 2.5; cx.beginPath(); cx.arc(0, 0, PR + 4, 0, Math.PI * 2); cx.stroke(); }
@@ -6690,12 +6854,12 @@
             e.classList.toggle('down', !!down[k] && !editing);
         });
         const m = Math.floor(t0 / 60), sc = Math.floor(t0 % 60);
-        $('pmHud').textContent = '⏱ ' + String(m).padStart(2, '0') + ':' + String(sc).padStart(2, '0') + ' · ⚽ ' + goals + ' · 🥅 ' + conceded + (lastGoalAt > 0 ? ' · son gol ' + Math.round(t0 - lastGoalAt) + ' sn önce' : '');
+        $('pmHud').textContent = '⏱ ' + String(m).padStart(2, '0') + ':' + String(sc).padStart(2, '0') + ' · ⚽ ' + goals + ' · 🥅 ' + conceded + (bots.length ? ' · ' + cfg.nA + 'v' + cfg.nB : '') + (lastGoalAt > 0 ? ' · son gol ' + Math.round(t0 - lastGoalAt) + ' sn önce' : '');
     }
     function loop(now) {
         if (!running) return;
         const dt = Math.min(0.033, (now - last) / 1000 || 0.016); last = now;
-        if (!editing) { step(dt / 2); step(dt / 2); }
+        if (!editing && !setupOpen) { step(dt / 2); step(dt / 2); }
         draw();
         hudT += dt; if (hudT > 0.08) { hudT = 0; updateUi(); }
         raf = requestAnimationFrame(loop);
@@ -6742,6 +6906,7 @@
     function onKey(ev, isDown) {
         if (!running) return;
         if (ev.key === 'Escape' && isDown) { close(); return; }
+        if (setupOpen) return;
         if (ev.key === 't' || ev.key === 'T') { if (isDown) { resetBall(); } return; }
         if (KEYMAP[ev.key]) { keys[KEYMAP[ev.key]] = isDown; if (KEYMAP[ev.key] === 'shift') down.sprint = isDown ? 1 : 0; ev.preventDefault(); return; }
         const k = KICKKEY[ev.key];
@@ -6774,15 +6939,39 @@
         root.style.display = 'block'; document.body.style.overflow = 'hidden';
         try { (document.documentElement.requestFullscreen || document.documentElement.webkitRequestFullscreen).call(document.documentElement); } catch (e) {}
         try { screen.orientation && screen.orientation.lock && screen.orientation.lock('landscape').catch(() => {}); } catch (e) {}
-        resetAll(); editing = false; running = true; layout(); last = performance.now(); raf = requestAnimationFrame(loop);
+        buildTeams(); resetAll(); editing = false; running = true; layout(); last = performance.now(); raf = requestAnimationFrame(loop);
         setTimeout(layout, 300);
+        openSetup('open');
     }
     function close() {
+        setupOpen = false; $('pmSetup').style.display = 'none';
         running = false; cancelAnimationFrame(raf); root.style.display = 'none'; document.body.style.overflow = '';
         Object.keys(down).forEach(k => down[k] = 0); stickEnd(); setEdit(false);
         try { screen.orientation && screen.orientation.unlock && screen.orientation.unlock(); } catch (e) {}
         try { if (document.fullscreenElement) document.exitFullscreen(); } catch (e) {}
     }
+    // ---- takım kurulumu ----
+    function refreshSetup() {
+        $('pmNA').textContent = cfg.nA; $('pmNB').textContent = cfg.nB;
+        document.querySelectorAll('#pmPresets .chip').forEach(c => c.classList.toggle('on', c.dataset.p === cfg.nA + ',' + cfg.nB));
+        document.querySelectorAll('#pmDiffs .chip').forEach(c => c.classList.toggle('on', +c.dataset.d === cfg.diff));
+        $('pmSum').textContent = (cfg.nA === 1 && cfg.nB === 0) ? 'Tek başına serbest antrenman'
+            : 'Sen' + (cfg.nA > 1 ? ' + ' + (cfg.nA - 1) + ' bot' : ' (tek)') + '  vs  ' + (cfg.nB ? cfg.nB + ' bot' : 'rakip yok') + '  (' + cfg.nA + 'v' + cfg.nB + ')';
+    }
+    function openSetup(from) {
+        setupFrom = from; setupOpen = true;
+        Object.keys(down).forEach(k => down[k] = 0); stickEnd();
+        $('pmSetup').style.display = 'flex'; refreshSetup();
+    }
+    $('pmAm').addEventListener('click', () => { cfg.nA = Math.max(1, cfg.nA - 1); refreshSetup(); });
+    $('pmAp').addEventListener('click', () => { cfg.nA = Math.min(8, cfg.nA + 1); refreshSetup(); });
+    $('pmBm').addEventListener('click', () => { cfg.nB = Math.max(0, cfg.nB - 1); refreshSetup(); });
+    $('pmBp').addEventListener('click', () => { cfg.nB = Math.min(8, cfg.nB + 1); refreshSetup(); });
+    document.querySelectorAll('#pmPresets .chip').forEach(c => c.addEventListener('click', () => { const v = c.dataset.p.split(',').map(Number); cfg.nA = v[0]; cfg.nB = v[1]; refreshSetup(); }));
+    document.querySelectorAll('#pmDiffs .chip').forEach(c => c.addEventListener('click', () => { cfg.diff = +c.dataset.d; refreshSetup(); }));
+    $('pmGo').addEventListener('click', () => { save(); buildTeams(); resetAll(); roleT = 0; setupOpen = false; $('pmSetup').style.display = 'none'; });
+    $('pmNo').addEventListener('click', () => { if (setupFrom === 'open') close(); else { setupOpen = false; $('pmSetup').style.display = 'none'; } });
+    $('pmTeams').addEventListener('click', () => openSetup('game'));
     $('pmExit').addEventListener('click', close);
     const ob = $('playModeBtn'); if (ob) ob.addEventListener('click', open);
 })();
